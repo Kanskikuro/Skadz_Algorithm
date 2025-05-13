@@ -455,8 +455,6 @@ def get_champion_scores_for_role(
 ###############################################################################
 # 6) Custom Entry + Popup Listbox Autocomplete
 ###############################################################################
-import tkinter as tk
-
 class AutocompleteEntryPopup(tk.Frame):
     """
     A custom widget with:
@@ -558,18 +556,29 @@ class AutocompleteEntryPopup(tk.Frame):
         if self.popup:
             self._select_current()
             self._hide_popup()
-            self.entry.focus_set()
+            self.entry.focus_set()  # Focus back on the entry widget
+            self._move_to_next_widget()
             return "break"
         else:
             matches = self._filter_suggestions(self.entry_var.get().strip())
             if len(matches) == 1:
                 self._set_text(matches[0])
-
+                self._move_to_next_widget()
+                
     def _on_tab_press(self, event):
         if self.popup:
             self._select_current()
             self._hide_popup()
+            self._move_to_next_widget()
             return "break"
+
+    def _move_to_next_widget(self):
+        # ask Tk for the widget that would be next if you tabbed normally
+        next_widget = self.entry.tk_focusNext()
+        if next_widget:
+            next_widget.focus_set()
+
+
 
     def _on_focus_out(self, event):
         if self.popup:
