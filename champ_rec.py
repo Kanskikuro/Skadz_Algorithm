@@ -699,7 +699,11 @@ class ChampionPickerGUI(tk.Tk):
         adjustment_label.grid(row=0, column=0, padx=5, pady=5, sticky="w")
 
         adjustment_dropdown = ttk.Combobox(
-            adjustment_frame, textvariable=self.adjustment_method, values=["Bayesian", "ADVI", "Hierarchical"], font=bigger_font
+            adjustment_frame, 
+            textvariable=self.adjustment_method, 
+            values=["Bayesian", "ADVI", "Hierarchical"], 
+            font=bigger_font,
+            state="readonly"
         )
         adjustment_dropdown.grid(row=0, column=1, padx=5, pady=5, sticky="w")
 
