@@ -1,6 +1,5 @@
-!champion_priors.csv
-
 *.csv
+!champion_priors.csv
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
