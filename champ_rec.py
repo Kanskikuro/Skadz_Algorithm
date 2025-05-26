@@ -652,12 +652,33 @@ class ChampionPickerGUI(tk.Tk):
         self.update_overall_win_rates()
         self.on_recommend()
 
+    def toggle_advanced_settings(self):
+        if self.advanced_visible.get():
+            self.advanced_frame.grid()
+        else:
+            self.advanced_frame.grid_remove()
 
     def _build_ui(self):
+        
+        self.advanced_visible = tk.BooleanVar(value=False)
+        toggle_btn = ttk.Checkbutton(
+            self,
+            text="Show Advanced Settings",
+            variable=self.advanced_visible,
+            command=self.toggle_advanced_settings,
+            onvalue=True,
+            offvalue=False
+        )
+     
+        
+        # Frame for Advanced Settings (initially visible)
+        self.advanced_frame = ttk.LabelFrame(self, text="Advanced Settings")
+        toggle_btn.grid(row=5, column=0, padx=10, pady=10, sticky="nw")
+
         bigger_font = ("Helvetica", 14)
 
         # Combobox for pick strategy
-        strategy_frame = ttk.LabelFrame(self, text="Pick Strategy")
+        strategy_frame = ttk.LabelFrame(self.advanced_frame, text="Pick Strategy")
         strategy_frame.grid(row=5, column=0, padx=10, pady=10, sticky="nw")
 
         strategy_label = ttk.Label(strategy_frame, text="Strategy:", font=bigger_font)
@@ -674,7 +695,7 @@ class ChampionPickerGUI(tk.Tk):
         )
         strategy_dropdown.grid(row=0, column=1, padx=5, pady=5, sticky="w")
 
-        display_metric_frame = ttk.LabelFrame(self, text="Display Metric")
+        display_metric_frame = ttk.LabelFrame(self.advanced_frame, text="Display Metric")
         display_metric_frame.grid(row=4, column=0, padx=10, pady=10, sticky="nw")
 
         display_metric_label = ttk.Label(display_metric_frame, text="Sort By:", font=bigger_font)
@@ -691,7 +712,7 @@ class ChampionPickerGUI(tk.Tk):
         display_metric_dropdown.grid(row=0, column=1, padx=5, pady=5, sticky="w")
 
         # Add dropdown for selecting the adjustment method
-        adjustment_frame = ttk.LabelFrame(self, text="Adjustment Method")
+        adjustment_frame = ttk.LabelFrame(self.advanced_frame, text="Adjustment Method")
         adjustment_frame.grid(row=3, column=0, padx=10, pady=10, sticky="nw")
 
         self.adjustment_method = tk.StringVar(value="Bayesian")  # Default: Bayesian adjustment
@@ -708,7 +729,7 @@ class ChampionPickerGUI(tk.Tk):
         adjustment_dropdown.grid(row=0, column=1, padx=5, pady=5, sticky="w")
 
         # m Value Frame
-        m_frame = ttk.LabelFrame(self, text="Bayesian Adjustment (m)")
+        m_frame = ttk.LabelFrame(self.advanced_frame, text="Bayesian Adjustment (m)")
         m_frame.grid(row=2, column=0, padx=10, pady=10, sticky="nw")
 
         m_label = ttk.Label(m_frame, text="Set m value:", font=bigger_font)
