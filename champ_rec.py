@@ -486,15 +486,24 @@ class AutocompleteEntryPopup(tk.Frame):
     def _on_keyrelease(self, event):
         if event.keysym in ("Up","Down","Left","Right","Return","Tab","Escape"):
             return
+
         text = self.entry_var.get().strip()
+
         if not text:
-            self._hide_popup()
+            # Show the entire suggestion_list when the box is blank
+            matches = list(self.suggestion_list)
+            if matches:
+                self._show_popup(matches)
+            else:
+                self._hide_popup()
             return
+
         matches = self._filter_suggestions(text)
         if matches:
             self._show_popup(matches)
         else:
             self._hide_popup()
+
 
     def _show_popup(self, suggestions):
         self._hide_popup()
@@ -564,7 +573,7 @@ class AutocompleteEntryPopup(tk.Frame):
             if len(matches) == 1:
                 self._set_text(matches[0])
                 self._move_to_next_widget()
-                
+
     def _on_tab_press(self, event):
         if self.popup:
             self._select_current()
@@ -573,12 +582,9 @@ class AutocompleteEntryPopup(tk.Frame):
             return "break"
 
     def _move_to_next_widget(self):
-        # ask Tk for the widget that would be next if you tabbed normally
         next_widget = self.entry.tk_focusNext()
         if next_widget:
             next_widget.focus_set()
-
-
 
     def _on_focus_out(self, event):
         if self.popup:
@@ -630,27 +636,62 @@ class ChampionPickerGUI(tk.Tk):
     def __init__(self, df_matchups, df_priors):
         super().__init__()
         self.geometry("1280x920")
+        self.minsize(700, 500)
         self.title("League Champion Picker")
 
         # Store the raw matchup DataFrame
-        self.df_matchups = df_matchups  
-        # Prepare the indexed DataFrame for fast lookups
-        self.df_matchups_indexed = prepare_multiindex(self.df_matchups)  
-        
+        self.df_matchups = df_matchups
+        self.df_matchups_indexed = prepare_multiindex(self.df_matchups)
         self.df_priors = df_priors
 
-        # We can pull champion list from df_priors
+        # Champion list
         self.champion_list = list(df_priors['champion_name'].unique())
 
         # Roles
         self.roles_ally = ["top", "jungle", "middle", "bottom", "support"]
 
-        # Build UI
+        # StringVars for adjustment method & display metric
+        self.adjustment_method = tk.StringVar(value="Bayesian")
+        self.display_metric_var = tk.StringVar(value="Delta")
+
+        # BooleanVar to control “auto-hide” behavior
+        self.auto_hide = tk.BooleanVar(value=True)
+
+        # Build the rest of the UI
         self._build_ui()
 
+    def toggle_role_visibility(self, role, visible):
+        """
+        Show or hide the result column for a given role.
+        Only hide if self.auto_hide is True.
+        """
+        if not visible and self.auto_hide.get():   # <--- Here it checks auto_hide to decide whether to hide
+            # If visible==False and auto_hide is on, remove from grid
+            self.result_labels[role].grid_remove()
+            self.copy_buttons[role].grid_remove()
+        else:
+            # Otherwise, ensure it’s shown
+            self.result_labels[role].grid()
+            self.copy_buttons[role].grid()
+
+
     def combined_callback(self):
+        # Called whenever any AutocompleteEntryPopup changes
+        self.check_filled_roles()
         self.update_overall_win_rates()
         self.on_recommend()
+        
+    def check_filled_roles(self):
+        """
+        For each ally role: if its entry is non-empty and auto_hide==True, hide its column.
+        Otherwise, show it.
+        """
+        for role, entry_widget in self.ally_champs.items():
+            champ = entry_widget.get_text().strip()
+            # If champ != "" and auto_hide, then visible=False; else visible=True
+            self.toggle_role_visibility(role, visible=(not bool(champ)))
+            # Here toggle_role_visibility uses auto_hide internally
+
 
     def toggle_advanced_settings(self):
         if self.advanced_visible.get():
@@ -659,7 +700,19 @@ class ChampionPickerGUI(tk.Tk):
             self.advanced_frame.grid_remove()
 
     def _build_ui(self):
-        
+        bigger_font = ("Helvetica", 14)
+
+        # ── AUTO-HIDE CHECKBUTTON ─────────────────────────────────────────────────────
+        auto_hide_chk = ttk.Checkbutton(
+            self,
+            text="Auto-hide suggestion when champ picked",
+            variable=self.auto_hide,
+            command=self.check_filled_roles  # <--- When user toggles, re-check roles to hide/show
+        )
+        auto_hide_chk.grid(row=0, column=0, padx=10, pady=(10, 0), sticky="w")
+
+
+        # ── ADVANCED SETTINGS TOGGLE ────────────────────────────────────────────────────
         self.advanced_visible = tk.BooleanVar(value=False)
         toggle_btn = ttk.Checkbutton(
             self,
@@ -669,22 +722,18 @@ class ChampionPickerGUI(tk.Tk):
             onvalue=True,
             offvalue=False
         )
-     
-        
-        # Frame for Advanced Settings (initially visible)
+        toggle_btn.grid(row=1, column=0, padx=10, pady=(5, 10), sticky="w")
+
+        # Frame for Advanced Settings (initially hidden)
         self.advanced_frame = ttk.LabelFrame(self, text="Advanced Settings")
-        toggle_btn.grid(row=5, column=0, padx=10, pady=10, sticky="nw")
+        # You can grid individual sub‐widgets below whenever you want them visible.
 
-        bigger_font = ("Helvetica", 14)
-
-        # Combobox for pick strategy
+        # --- Example: Pick Strategy (inside advanced_frame) ---
         strategy_frame = ttk.LabelFrame(self.advanced_frame, text="Pick Strategy")
         strategy_frame.grid(row=5, column=0, padx=10, pady=10, sticky="nw")
-
         strategy_label = ttk.Label(strategy_frame, text="Strategy:", font=bigger_font)
         strategy_label.grid(row=0, column=0, padx=5, pady=5, sticky="w")
-
-        self.pick_strategy_var = tk.StringVar(value="Maximize")  # or "Minimax"
+        self.pick_strategy_var = tk.StringVar(value="Maximize")
         strategy_dropdown = ttk.Combobox(
             strategy_frame,
             textvariable=self.pick_strategy_var,
@@ -695,58 +744,50 @@ class ChampionPickerGUI(tk.Tk):
         )
         strategy_dropdown.grid(row=0, column=1, padx=5, pady=5, sticky="w")
 
+        # --- Display Metric (inside advanced_frame) ---
         display_metric_frame = ttk.LabelFrame(self.advanced_frame, text="Display Metric")
         display_metric_frame.grid(row=4, column=0, padx=10, pady=10, sticky="nw")
-
         display_metric_label = ttk.Label(display_metric_frame, text="Sort By:", font=bigger_font)
         display_metric_label.grid(row=0, column=0, padx=5, pady=5, sticky="w")
-
-        self.display_metric_var = tk.StringVar(value="Delta")  # default
         display_metric_dropdown = ttk.Combobox(
-            display_metric_frame, 
-            textvariable=self.display_metric_var, 
-            values=["Win Rate", "Delta"], 
-            font=bigger_font, 
+            display_metric_frame,
+            textvariable=self.display_metric_var,  # already created in __init__
+            values=["Win Rate", "Delta"],
+            font=bigger_font,
             state="readonly"
         )
         display_metric_dropdown.grid(row=0, column=1, padx=5, pady=5, sticky="w")
 
-        # Add dropdown for selecting the adjustment method
+        # --- Adjustment Method (inside advanced_frame) ---
         adjustment_frame = ttk.LabelFrame(self.advanced_frame, text="Adjustment Method")
         adjustment_frame.grid(row=3, column=0, padx=10, pady=10, sticky="nw")
-
-        self.adjustment_method = tk.StringVar(value="Bayesian")  # Default: Bayesian adjustment
         adjustment_label = ttk.Label(adjustment_frame, text="Select Adjustment:", font=bigger_font)
         adjustment_label.grid(row=0, column=0, padx=5, pady=5, sticky="w")
-
         adjustment_dropdown = ttk.Combobox(
-            adjustment_frame, 
-            textvariable=self.adjustment_method, 
-            values=["Bayesian", "ADVI", "Hierarchical"], 
+            adjustment_frame,
+            textvariable=self.adjustment_method,  # already created in __init__
+            values=["Bayesian", "ADVI", "Hierarchical"],
             font=bigger_font,
             state="readonly"
         )
         adjustment_dropdown.grid(row=0, column=1, padx=5, pady=5, sticky="w")
 
-        # m Value Frame
+        # --- Bayesian “m” Value (inside advanced_frame) ---
         m_frame = ttk.LabelFrame(self.advanced_frame, text="Bayesian Adjustment (m)")
         m_frame.grid(row=2, column=0, padx=10, pady=10, sticky="nw")
-
         m_label = ttk.Label(m_frame, text="Set m value:", font=bigger_font)
         m_label.grid(row=0, column=0, padx=5, pady=5, sticky="w")
-
-        self.m_var = tk.IntVar(value=0)  # Default m value
+        self.m_var = tk.IntVar(value=0)
         self.m_entry = ttk.Entry(m_frame, textvariable=self.m_var, width=10, font=bigger_font)
         self.m_entry.grid(row=0, column=1, padx=5, pady=5, sticky="w")
-
         m_button = ttk.Button(m_frame, text="Recalculate", command=self.recalculate_matchups)
         m_button.grid(row=0, column=2, padx=5, pady=5, sticky="w")
 
-        # ALLY picks frame
+        # ── ALLY PICKS FRAME ────────────────────────────────────────────────────────────
         ally_frame = ttk.LabelFrame(self, text="Ally Team (known roles)")
-        ally_frame.grid(row=0, column=0, padx=10, pady=10, sticky="nw")
+        ally_frame.grid(row=2, column=0, padx=10, pady=10, sticky="nw")
 
-        self.ally_champs = {}  # role -> AutocompleteEntryPopup
+        self.ally_champs = {}
         for i, role in enumerate(self.roles_ally):
             label = ttk.Label(ally_frame, text=role.capitalize() + ":", font=bigger_font)
             label.grid(row=i, column=0, sticky="w")
@@ -754,16 +795,16 @@ class ChampionPickerGUI(tk.Tk):
             champ_entry = AutocompleteEntryPopup(
                 ally_frame,
                 suggestion_list=self.champion_list,
-                width=25,
+                width=12,
                 font=bigger_font,
                 callback=self.combined_callback
             )
             champ_entry.grid(row=i, column=1, padx=5, pady=5, sticky="w")
             self.ally_champs[role] = champ_entry
 
-        # ENEMY picks frame
+        # ── ENEMY PICKS FRAME ───────────────────────────────────────────────────────────
         enemy_frame = ttk.LabelFrame(self, text="Enemy Team (champions only)")
-        enemy_frame.grid(row=0, column=1, padx=10, pady=10, sticky="nw")
+        enemy_frame.grid(row=2, column=1, padx=10, pady=10, sticky="nw")
 
         self.enemy_champ_boxes = []
         for i in range(5):
@@ -773,92 +814,80 @@ class ChampionPickerGUI(tk.Tk):
             champ_entry = AutocompleteEntryPopup(
                 enemy_frame,
                 suggestion_list=self.champion_list,
-                width=25,
+                width=12,
                 font=bigger_font,
                 callback=self.combined_callback
             )
             champ_entry.grid(row=i, column=1, padx=5, pady=5, sticky="w")
             self.enemy_champ_boxes.append(champ_entry)
 
-        # BANNED picks frame
+        # ── BANNED PICKS FRAME (OPTIONAL) ───────────────────────────────────────────────
         ban_frame = ttk.LabelFrame(self, text="Banned Champions")
-        ban_frame.grid(row=0, column=2, padx=10, pady=10, sticky="nw")
+        # ban_frame.grid(row=…, column=…)
 
         self.ban_champ_boxes = []
-        for i in range(10):  # up to 10 bans
+        for i in range(10):
             label = ttk.Label(ban_frame, text=f"Ban #{i+1}:", font=bigger_font)
             label.grid(row=i, column=0, sticky="w")
 
             ban_entry = AutocompleteEntryPopup(
                 ban_frame,
                 suggestion_list=self.champion_list,
-                width=25,
+                width=12,
                 font=bigger_font,
                 callback=self.combined_callback
             )
             ban_entry.grid(row=i, column=1, padx=5, pady=5, sticky="w")
             self.ban_champ_boxes.append(ban_entry)
 
-        # Frame for "Which role am I picking?"
-        pick_frame = ttk.LabelFrame(self, text="My Next Pick")
-        pick_frame.grid(row=1, column=0, columnspan=3, padx=10, pady=10, sticky="ew")
-
-        pick_label = ttk.Label(pick_frame, text="Select Your Role:", font=bigger_font)
-        pick_label.grid(row=0, column=0, padx=5, pady=5, sticky="w")
-
-        self.pick_role_var = tk.StringVar()
-        self.pick_role_combo = ttk.Combobox(
-            pick_frame,
-            textvariable=self.pick_role_var,
-            values=self.roles_ally + ["all"],  # include "all"
-            width=10,
-            font=bigger_font
-        )
-        self.pick_role_combo.grid(row=0, column=1, padx=5, pady=5, sticky="w")
-        self.pick_role_combo.set("all")
-
-        btn_recommend = ttk.Button(pick_frame, text="Recommend", command=self.on_recommend)
-        btn_recommend.grid(row=0, column=2, padx=20, pady=5)
+        # ── “MY NEXT PICK” FRAME ───────────────────────────────────────────────────────
+        pick_frame = ttk.LabelFrame(self, text="Suggested Picks")
+        pick_frame.grid(row=3, column=0, columnspan=3, padx=10, pady=10, sticky="ew")
 
         btn_reset = ttk.Button(pick_frame, text="Reset", command=self.reset_all)
-        btn_reset.grid(row=0, column=3, padx=20, pady=5)  # Adjust position as needed
+        btn_reset.grid(row=0, column=0, padx=20, pady=5, sticky="w")
 
-        # Create a frame to hold five side-by-side result labels and copy buttons
+        # ── RESULTS FRAME ─────────────────────────────────────────────────────────────
         self.results_frame = ttk.Frame(pick_frame)
         self.results_frame.grid(row=1, column=0, columnspan=3, sticky="ew")
 
-        # Initialize dictionaries to hold labels and copy buttons for each role
         self.result_labels = {}
         self.copy_buttons = {}
 
         for i, role in enumerate(self.roles_ally):
-            # Create a subframe for each role to hold label and button
             subframe = ttk.Frame(self.results_frame)
             subframe.grid(row=0, column=i, padx=5, pady=5, sticky="nw")
 
-            # Create a Label for each role's recommendation list
             lbl = ttk.Label(subframe, text="", justify="left", font=bigger_font)
             lbl.grid(row=0, column=0, sticky="nw")
             self.result_labels[role] = lbl
 
-            # Create a "Copy" button for this role
             btn = ttk.Button(subframe, text="Copy", command=lambda r=role: self.copy_to_clipboard(r))
-            btn.grid(row=1, column=0, pady=(5,0))
+            btn.grid(row=1, column=0, pady=(5, 0))
             self.copy_buttons[role] = btn
 
-        # A separate label to show enemy role guesses
-        self.enemy_guess_label = ttk.Label(pick_frame, text="", justify="left", font=bigger_font)
-        self.enemy_guess_label.grid(row=2, column=0, columnspan=3, sticky="w")
+        # ── ENEMY GUESS LABEL (moved next to enemy inputs) ──────────────────────────────
+        self.enemy_guess_label = ttk.Label(
+            enemy_frame, 
+            text="",
+            justify="left",
+            font=bigger_font
+        )
+        # Place it in enemy_frame, to the right of the five entry rows:
+        self.enemy_guess_label.grid(
+            row=0, 
+            column=2, 
+            rowspan=len(self.enemy_champ_boxes),
+            sticky="nw",
+            padx=(10, 0)
+        )
 
-        # A separate label showing each team's estimated overall win rate 
-        self.overall_win_rate_label = ttk.Label(pick_frame, text="", justify="left", font=bigger_font)
-        self.overall_win_rate_label.grid(row=3, column=0, columnspan=3, sticky="w")
+        # Label for overall win rates
+        self.overall_win_rate_label = ttk.Label(self, text="", justify="left", font=bigger_font)
+        self.overall_win_rate_label.grid(row=0, column=1, rowspan=2, padx=10, pady=5, sticky="nw")
+
 
     def get_banned_champions(self):
-        """
-        Gather up all typed bans from ban_champ_boxes.
-        Returns a list of ban strings (champion names).
-        """
         banned = []
         for ban_entry in self.ban_champ_boxes:
             champ_name = ban_entry.get_text().strip()
@@ -867,112 +896,8 @@ class ChampionPickerGUI(tk.Tk):
         return banned
 
     def on_recommend(self):
-        pick_strategy = self.pick_strategy_var.get()  # "Maximize" or "Minimax"
+        pick_strategy = self.pick_strategy_var.get()
 
-        # Determine selected adjustment method
-        selected_method = self.adjustment_method.get().lower()  # 'bayesian', 'advi', 'hierarchical'
-        selected_log_odds_column = f'log_odds_{selected_method}'
-        if selected_log_odds_column in self.df_matchups.columns:
-            self.df_matchups['log_odds'] = self.df_matchups[selected_log_odds_column]
-        else:
-            self.df_matchups['log_odds'] = self.df_matchups['log_odds_bayes']
-
-        # Rebuild multi-index
-        self.df_matchups_indexed = prepare_multiindex(self.df_matchups)
-        
-        # Gather ally team
-        ally_team = {}
-        for role, entry_widget in self.ally_champs.items():
-            champ = entry_widget.get_text().strip()
-            if champ:
-                ally_team[role] = champ
-        
-        # Gather enemy champs
-        enemy_champs = []
-        for entry_widget in self.enemy_champ_boxes:
-            champ = entry_widget.get_text().strip()
-            if champ:
-                enemy_champs.append(champ)
-
-        # Guess enemy roles
-        enemy_team = guess_enemy_roles(enemy_champs, self.df_priors)
-
-        # Show guessed roles
-        guessed_roles_str = "Guessed roles for enemies:\n"
-        for role, champ in enemy_team.items():
-            guessed_roles_str += f"  {champ} => {role}\n"
-        self.enemy_guess_label.config(text=guessed_roles_str)
-
-        selected_role = self.pick_role_var.get().strip().lower()
-
-        # Retrieve chosen display metric
-        chosen_display_metric = self.display_metric_var.get()  # "Win Rate" or "Delta"
-
-        # Build a set of excluded champions:
-        # all current picks on ally side + enemy side, plus banned champions
-        excluded_champs = set(ally_team.values()) | set(enemy_team.values()) | set(self.get_banned_champions())
-
-        if selected_role == "all":
-            for role in self.roles_ally:
-                scores = get_champion_scores_for_role(
-                    df_indexed=self.df_matchups_indexed,
-                    role_to_fill=role,
-                    ally_team=ally_team,
-                    enemy_team=enemy_team,
-                    pick_strategy=("MinimaxAllRoles" if pick_strategy.startswith("Minimax") else "Maximize"),
-                    champion_pool=self.champion_list,
-                    excluded_champions=excluded_champs
-                )
-                # scores is list of (champ, sum_log_odds, sum_delta)
-
-                # -------------- Sort by user-chosen metric ---------------
-                if chosen_display_metric == "Delta":
-                    # Sort by sum_delta descending
-                    scores.sort(key=lambda x: x[2], reverse=True)
-                else:
-                    # Default is "Win Rate", sort by sum_log_odds descending
-                    scores.sort(key=lambda x: x[1], reverse=True)
-
-                n = 10
-                top_n = scores[:n]
-                result_text = f"Top {len(top_n)} for {role.capitalize()}:\n"
-                for champ, total_log_odds, total_delta in top_n:
-                    result_text += (
-                        f"{champ}: W={10 * total_log_odds:.1f}, D={10 * total_delta:.1f}\n"
-                    )
-                self.result_labels[role].config(text=result_text)
-        else:
-            # Clear other role labels
-            for role in self.roles_ally:
-                if role != selected_role:
-                    self.result_labels[role].config(text="")
-
-            scores = get_champion_scores_for_role(
-                df_indexed=self.df_matchups_indexed,
-                role_to_fill=selected_role,
-                ally_team=ally_team,
-                enemy_team=enemy_team,
-                pick_strategy=("MinimaxAllRoles" if pick_strategy.startswith("Minimax") else "Maximize"),
-                champion_pool=self.champion_list,
-                excluded_champions=excluded_champs
-            )
-
-            if chosen_display_metric == "Delta":
-                scores.sort(key=lambda x: x[2], reverse=True)
-            else:
-                scores.sort(key=lambda x: x[1], reverse=True)
-
-            n = 10
-            top_n = scores[:n]
-            result_text = f"Top {len(top_n)} for {selected_role.capitalize()}:\n"
-            for champ, total_log_odds, total_delta in top_n:
-                result_text += (
-                    f"{champ}: W={10 * total_log_odds:.1f}, D={10 * total_delta:.1f}\n"
-                )
-            self.result_labels[selected_role].config(text=result_text)
-
-    def update_overall_win_rates(self):
-        # Determine selected adjustment method and update active log_odds column
         selected_method = self.adjustment_method.get().lower()
         selected_log_odds_column = f'log_odds_{selected_method}'
         if selected_log_odds_column in self.df_matchups.columns:
@@ -980,121 +905,145 @@ class ChampionPickerGUI(tk.Tk):
         else:
             self.df_matchups['log_odds'] = self.df_matchups['log_odds_bayes']
 
-        # Rebuild the indexed DataFrame to use the updated log_odds values
         self.df_matchups_indexed = prepare_multiindex(self.df_matchups)
 
-        # Gather current ally team composition from UI
         ally_team = {}
         for role, entry_widget in self.ally_champs.items():
             champ = entry_widget.get_text().strip()
             if champ:
                 ally_team[role] = champ
 
-        # Gather enemy team and guess roles
-        enemy_champs = [entry.get_text().strip() for entry in self.enemy_champ_boxes if entry.get_text().strip()]
+        enemy_champs = []
+        for entry_widget in self.enemy_champ_boxes:
+            champ = entry_widget.get_text().strip()
+            if champ:
+                enemy_champs.append(champ)
+
         enemy_team = guess_enemy_roles(enemy_champs, self.df_priors)
 
-        # Calculate overall win rates
+        guessed_roles_str = ""
+        for role, champ in enemy_team.items():
+            guessed_roles_str += f"{champ} →  {role}\n"
+        self.enemy_guess_label.config(text=guessed_roles_str)
+
+     
+        chosen_display_metric = self.display_metric_var.get()
+
+        excluded_champs = set(ally_team.values()) | set(enemy_team.values()) | set(self.get_banned_champions())
+
+        
+        excluded_dynamic = excluded_champs.copy()
+        for role in self.roles_ally:
+            scores = get_champion_scores_for_role(
+                df_indexed=self.df_matchups_indexed,
+                role_to_fill=role,
+                ally_team=ally_team,
+                enemy_team=enemy_team,
+                pick_strategy=("MinimaxAllRoles" if pick_strategy.startswith("Minimax") else "Maximize"),
+                champion_pool=self.champion_list,
+                excluded_champions=excluded_dynamic
+            )
+            if chosen_display_metric == "Delta":
+                scores.sort(key=lambda x: x[2], reverse=True)
+            else:
+                scores.sort(key=lambda x: x[1], reverse=True)
+
+            top_n = scores[:10]
+            result_text = f"Top {len(top_n)} for {role.capitalize()}:\n"
+            for champ, total_log_odds, total_delta in top_n:
+                result_text += f"{champ}: W={10 * total_log_odds:.1f}, D={10 * total_delta:.1f}\n"
+            self.result_labels[role].config(text=result_text)
+
+            if top_n:
+                excluded_dynamic.add(top_n[0][0])
+
+
+
+    def update_overall_win_rates(self):
+        selected_method = self.adjustment_method.get().lower()
+        selected_log_odds_column = f'log_odds_{selected_method}'
+        if selected_log_odds_column in self.df_matchups.columns:
+            self.df_matchups['log_odds'] = self.df_matchups[selected_log_odds_column]
+        else:
+            self.df_matchups['log_odds'] = self.df_matchups['log_odds_bayes']
+
+        self.df_matchups_indexed = prepare_multiindex(self.df_matchups)
+
+        ally_team = {}
+        for role, entry_widget in self.ally_champs.items():
+            champ = entry_widget.get_text().strip()
+            if champ:
+                ally_team[role] = champ
+
+        enemy_champs = [e.get_text().strip() for e in self.enemy_champ_boxes if e.get_text().strip()]
+        enemy_team = guess_enemy_roles(enemy_champs, self.df_priors)
+
         ally_win_rate, enemy_win_rate = calculate_overall_win_rates(
             self.df_matchups_indexed, ally_team, enemy_team
         )
-
         overall_text = (
             f"Estimated Ally Team Win Rate: {ally_win_rate:.2%}\n"
             f"Estimated Enemy Team Win Rate: {enemy_win_rate:.2%}"
         )
         self.overall_win_rate_label.config(text=overall_text)
 
-        guessed_roles_str = "Guessed roles for enemies:\n"
-        for role, champ in enemy_team.items():
-            guessed_roles_str += f"  {champ} => {role}\n"
-        self.enemy_guess_label.config(text=guessed_roles_str)
-
     def reset_all(self):
-        # Clear ally champion entries
         for entry_widget in self.ally_champs.values():
             entry_widget.entry_var.set("")
-
-        # Clear enemy champion entries
         for entry_widget in self.enemy_champ_boxes:
             entry_widget.entry_var.set("")
-
-        # Clear banned champion entries
         for ban_entry in self.ban_champ_boxes:
             ban_entry.entry_var.set("")
 
-        # Clear recommendation results for each role
-        for label in self.result_labels.values():
-            label.config(text="")
+        for lbl in self.result_labels.values():
+            lbl.config(text="")
 
-        # Clear enemy guess label and overall win rate label
         self.enemy_guess_label.config(text="")
         self.overall_win_rate_label.config(text="")
 
-        # Optionally, update overall win rates to recalculate based on cleared state
+        # After clearing, re-run the hiding logic
+        self.check_filled_roles()
         self.update_overall_win_rates()
 
     def copy_to_clipboard(self, role):
-        label = self.result_labels[role]
-        text = label.cget("text")
+        text = self.result_labels[role].cget("text")
         if text:
-            pyperclip.copy(text)  # Use pyperclip to handle clipboard operations
+            pyperclip.copy(text)
 
     def recalculate_matchups(self):
         try:
             m_value = self.m_var.get()
 
-            # ------------------------------------------------------------------
-            # (1) BAYESIAN ADJUSTMENT FOR WIN RATE
-            # ------------------------------------------------------------------
             self.df_matchups['win_rate_shrunk_bayes'] = (
                 (self.df_matchups['win_rate'] * self.df_matchups['sample_size'] +
                  50.0 * m_value) / (self.df_matchups['sample_size'] + m_value)
             )
-
-            # Update log odds for Bayesian column
             self.df_matchups['log_odds_bayes'] = self.df_matchups['win_rate_shrunk_bayes'].apply(win_rate_to_log_odds)
 
-            # ------------------------------------------------------------------
-            # (2) BAYESIAN ADJUSTMENT FOR DELTA (OPTIONAL)
-            # Check if 'delta' is in the DataFrame
-            # ------------------------------------------------------------------
             if 'delta' in self.df_matchups.columns:
                 self.df_matchups['delta_shrunk_bayes'] = (
-                    (self.df_matchups['delta'] * self.df_matchups['sample_size'] + 
-                     0.000 * m_value)  # prior = 0.035 corresponds to 52% win rate
-                    / (self.df_matchups['sample_size'] + m_value)
+                    (self.df_matchups['delta'] * self.df_matchups['sample_size'] +
+                     0.000 * m_value) /
+                    (self.df_matchups['sample_size'] + m_value)
                 )
 
-            # Recreate the multi-indexed DataFrame for Bayesian recalculations
             self.df_matchups_indexed = prepare_multiindex(self.df_matchups)
 
-            # ------------------------------------------------------------------
-            # (3) SAVE COLUMNS BACK TO CSV
-            # ------------------------------------------------------------------
             desired_columns = [
-                "champ1", "role1", "type", "champ2", "role2", 
-                "win_rate", "sample_size", 
+                "champ1", "role1", "type", "champ2", "role2",
+                "win_rate", "sample_size",
                 "win_rate_shrunk_bayes", "log_odds_bayes",
                 "win_rate_shrunk_advi", "log_odds_advi",
                 "win_rate_shrunk_hierarchical", "log_odds_hierarchical",
             ]
-            
-            # If we computed 'delta_shrunk_bayes', add it
             if 'delta_shrunk_bayes' in self.df_matchups.columns:
                 desired_columns.append('delta_shrunk_bayes')
-
             if 'delta' in self.df_matchups.columns:
                 desired_columns.append('delta')
 
-            # Keep only columns that exist in the DataFrame
-            columns_to_save = [col for col in desired_columns if col in self.df_matchups.columns]
-
+            columns_to_save = [c for c in desired_columns if c in self.df_matchups.columns]
             self.df_matchups.to_csv("matchups_shrunk.csv", columns=columns_to_save, index=False)
 
-            # ------------------------------------------------------------------
-            # (4) UPDATE THE GUI
-            # ------------------------------------------------------------------
             self.update_overall_win_rates()
             self.on_recommend()
 
@@ -1102,7 +1051,10 @@ class ChampionPickerGUI(tk.Tk):
             messagebox.showerror("Error", f"Failed to recalculate matchups: {e}")
 
 
-###############################################################################
+
+
+
+##############################################################################
 # 8) Run the GUI
 ###############################################################################
 if __name__ == "__main__":
