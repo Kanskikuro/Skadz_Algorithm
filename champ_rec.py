@@ -661,18 +661,22 @@ class ChampionPickerGUI(tk.Tk):
         self._build_ui()
 
     def toggle_role_visibility(self, role, visible):
-        """
-        Show or hide the result column for a given role.
-        Only hide if self.auto_hide is True.
-        """
-        if not visible and self.auto_hide.get():   # <--- Here it checks auto_hide to decide whether to hide
-            # If visible==False and auto_hide is on, remove from grid
-            self.result_labels[role].grid_remove()
-            self.copy_buttons[role].grid_remove()
+        container = self.result_labels_grid_info[role]['in_']  # the subframe holding label + button
+        
+        if not visible and self.auto_hide.get():
+            container.grid_forget()
         else:
-            # Otherwise, ensure it’s shown
-            self.result_labels[role].grid()
-            self.copy_buttons[role].grid()
+            container.grid()
+
+
+    def rearrange_result_labels(self):
+        # Get roles whose result_labels are currently visible (mapped in the UI)
+        visible_roles = [role for role, lbl in self.result_labels.items() if lbl.winfo_ismapped()]
+        
+        for i, role in enumerate(visible_roles):
+            # Subframe is the parent of label and button, get from stored grid info
+            container = self.result_labels_grid_info[role]['in_']
+            container.grid(row=0, column=i, padx=5, pady=5, sticky="nw")
 
 
     def combined_callback(self):
@@ -682,16 +686,11 @@ class ChampionPickerGUI(tk.Tk):
         self.on_recommend()
         
     def check_filled_roles(self):
-        """
-        For each ally role: if its entry is non-empty and auto_hide==True, hide its column.
-        Otherwise, show it.
-        """
         for role, entry_widget in self.ally_champs.items():
             champ = entry_widget.get_text().strip()
-            # If champ != "" and auto_hide, then visible=False; else visible=True
             self.toggle_role_visibility(role, visible=(not bool(champ)))
-            # Here toggle_role_visibility uses auto_hide internally
 
+        self.rearrange_result_labels()
 
     def toggle_advanced_settings(self):
         if self.advanced_visible.get():
@@ -783,9 +782,13 @@ class ChampionPickerGUI(tk.Tk):
         m_button = ttk.Button(m_frame, text="Recalculate", command=self.recalculate_matchups)
         m_button.grid(row=0, column=2, padx=5, pady=5, sticky="w")
 
+        # ── TEAMS FRAME ────────────────────────────────────────────────────────────────
+        teams_frame = ttk.Frame(self)
+        teams_frame.grid(row=2, column=0, columnspan=2, sticky="nw", padx=10, pady=10)
+
         # ── ALLY PICKS FRAME ────────────────────────────────────────────────────────────
-        ally_frame = ttk.LabelFrame(self, text="Ally Team (known roles)")
-        ally_frame.grid(row=2, column=0, padx=10, pady=10, sticky="nw")
+        ally_frame = ttk.LabelFrame(teams_frame, text="Ally Team (known roles)")
+        ally_frame.grid(row=0, column=0, padx=10, sticky="nw")
 
         self.ally_champs = {}
         for i, role in enumerate(self.roles_ally):
@@ -803,10 +806,11 @@ class ChampionPickerGUI(tk.Tk):
             self.ally_champs[role] = champ_entry
 
         # ── ENEMY PICKS FRAME ───────────────────────────────────────────────────────────
-        enemy_frame = ttk.LabelFrame(self, text="Enemy Team (champions only)")
-        enemy_frame.grid(row=2, column=1, padx=10, pady=10, sticky="nw")
+        enemy_frame = ttk.LabelFrame(teams_frame, text="Enemy Team (champions only)")
+        enemy_frame.grid(row=0, column=1, padx=10, sticky="nw")
 
         self.enemy_champ_boxes = []
+        self.enemy_role_labels = []  # NEW: store labels for enemy role guesses
         for i in range(5):
             label = ttk.Label(enemy_frame, text=f"Enemy #{i+1}:", font=bigger_font)
             label.grid(row=i, column=0, sticky="w")
@@ -820,6 +824,26 @@ class ChampionPickerGUI(tk.Tk):
             )
             champ_entry.grid(row=i, column=1, padx=5, pady=5, sticky="w")
             self.enemy_champ_boxes.append(champ_entry)
+
+            label = ttk.Label(enemy_frame, text=f"Enemy #{i+1}:", font=bigger_font)
+            label.grid(row=i, column=0, sticky="w")
+
+            champ_entry = AutocompleteEntryPopup(
+                enemy_frame,
+                suggestion_list=self.champion_list,
+                width=12,
+                font=bigger_font,
+                callback=self.combined_callback
+            )
+            champ_entry.grid(row=i, column=1, padx=5, pady=5, sticky="w")
+            self.enemy_champ_boxes.append(champ_entry)
+
+            # NEW: label to show guessed role next to champ entry
+            role_label = ttk.Label(enemy_frame, text="", font=bigger_font, foreground="blue")
+            role_label.grid(row=i, column=2, padx=(5, 10), sticky="w")
+            self.enemy_role_labels.append(role_label)
+
+
 
         # ── BANNED PICKS FRAME (OPTIONAL) ───────────────────────────────────────────────
         ban_frame = ttk.LabelFrame(self, text="Banned Champions")
@@ -845,14 +869,16 @@ class ChampionPickerGUI(tk.Tk):
         pick_frame.grid(row=3, column=0, columnspan=3, padx=10, pady=10, sticky="ew")
 
         btn_reset = ttk.Button(pick_frame, text="Reset", command=self.reset_all)
-        btn_reset.grid(row=0, column=0, padx=20, pady=5, sticky="w")
+        btn_reset.grid(row=0, column=0, padx=20, pady=(10, 5), sticky="w")
 
         # ── RESULTS FRAME ─────────────────────────────────────────────────────────────
         self.results_frame = ttk.Frame(pick_frame)
-        self.results_frame.grid(row=1, column=0, columnspan=3, sticky="ew")
+        self.results_frame.grid(row=2, column=0, columnspan=3, sticky="ew")
 
         self.result_labels = {}
         self.copy_buttons = {}
+        self.result_labels_grid_info = {}  # save grid info
+        self.copy_buttons_grid_info = {}
 
         for i, role in enumerate(self.roles_ally):
             subframe = ttk.Frame(self.results_frame)
@@ -861,10 +887,13 @@ class ChampionPickerGUI(tk.Tk):
             lbl = ttk.Label(subframe, text="", justify="left", font=bigger_font)
             lbl.grid(row=0, column=0, sticky="nw")
             self.result_labels[role] = lbl
+            self.result_labels_grid_info[role] = {'in_': subframe, 'row': 0, 'column': 0, 'sticky': 'nw'}
 
             btn = ttk.Button(subframe, text="Copy", command=lambda r=role: self.copy_to_clipboard(r))
             btn.grid(row=1, column=0, pady=(5, 0))
             self.copy_buttons[role] = btn
+            self.copy_buttons_grid_info[role] = {'in_': subframe, 'row': 1, 'column': 0, 'pady': (5, 0)}
+
 
         # ── ENEMY GUESS LABEL (moved next to enemy inputs) ──────────────────────────────
         self.enemy_guess_label = ttk.Label(
@@ -920,7 +949,7 @@ class ChampionPickerGUI(tk.Tk):
                 enemy_champs.append(champ)
 
         enemy_team = guess_enemy_roles(enemy_champs, self.df_priors)
-
+        
         guessed_roles_str = ""
         for role, champ in enemy_team.items():
             guessed_roles_str += f"{champ} →  {role}\n"
@@ -1006,9 +1035,15 @@ class ChampionPickerGUI(tk.Tk):
         self.update_overall_win_rates()
 
     def copy_to_clipboard(self, role):
-        text = self.result_labels[role].cget("text")
-        if text:
-            pyperclip.copy(text)
+        """
+        Copy the result text for a given role to the system clipboard.
+        """
+        result_text = self.result_labels[role].cget("text")
+        if result_text:
+            self.clipboard_clear()
+            self.clipboard_append(result_text)
+            self.update()  # Keeps the clipboard content after the window is closed
+
 
     def recalculate_matchups(self):
         try:
@@ -1049,8 +1084,6 @@ class ChampionPickerGUI(tk.Tk):
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to recalculate matchups: {e}")
-
-
 
 
 
