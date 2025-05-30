@@ -810,7 +810,8 @@ class ChampionPickerGUI(tk.Tk):
         enemy_frame.grid(row=0, column=1, padx=10, sticky="nw")
 
         self.enemy_champ_boxes = []
-        self.enemy_role_labels = []  # NEW: store labels for enemy role guesses
+        self.enemy_role_labels = []  # Store labels for enemy role guesses
+
         for i in range(5):
             label = ttk.Label(enemy_frame, text=f"Enemy #{i+1}:", font=bigger_font)
             label.grid(row=i, column=0, sticky="w")
@@ -825,24 +826,10 @@ class ChampionPickerGUI(tk.Tk):
             champ_entry.grid(row=i, column=1, padx=5, pady=5, sticky="w")
             self.enemy_champ_boxes.append(champ_entry)
 
-            label = ttk.Label(enemy_frame, text=f"Enemy #{i+1}:", font=bigger_font)
-            label.grid(row=i, column=0, sticky="w")
-
-            champ_entry = AutocompleteEntryPopup(
-                enemy_frame,
-                suggestion_list=self.champion_list,
-                width=12,
-                font=bigger_font,
-                callback=self.combined_callback
-            )
-            champ_entry.grid(row=i, column=1, padx=5, pady=5, sticky="w")
-            self.enemy_champ_boxes.append(champ_entry)
-
-            # NEW: label to show guessed role next to champ entry
+            # Label to show guessed role next to champ entry
             role_label = ttk.Label(enemy_frame, text="", font=bigger_font, foreground="blue")
             role_label.grid(row=i, column=2, padx=(5, 10), sticky="w")
             self.enemy_role_labels.append(role_label)
-
 
 
         # ── BANNED PICKS FRAME (OPTIONAL) ───────────────────────────────────────────────
@@ -985,7 +972,6 @@ class ChampionPickerGUI(tk.Tk):
 
             if top_n:
                 excluded_dynamic.add(top_n[0][0])
-
 
 
     def update_overall_win_rates(self):
