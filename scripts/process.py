@@ -281,8 +281,8 @@ def create_matchup_index_and_sign(df):
     return df, next_index
 
 def main(model_type='hierarchical', m=200):
-    reduced_file = 'reduced_matchups.csv'
-    output_file = 'matchups_shrunk.csv'
+    reduced_file = 'data/reduced_matchups.csv'
+    output_file = 'data/matchups_shrunk.csv'
     unique_key_columns = ['champ1', 'role1', 'champ2', 'role2', 'type']
 
     if os.path.exists(reduced_file):
@@ -290,7 +290,7 @@ def main(model_type='hierarchical', m=200):
         data = pd.read_csv(reduced_file)
     else:
         print("Calculating delta column...")
-        data = pd.read_csv('matchups.csv')
+        data = pd.read_csv('data/matchups.csv')
 
         # === Compute baseline for champ1, role1 ===
         baseline_dict1 = (
