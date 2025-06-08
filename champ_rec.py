@@ -1063,7 +1063,7 @@ class ChampionPickerGUI(tk.Tk):
                 desired_columns.append('delta')
 
             columns_to_save = [c for c in desired_columns if c in self.df_matchups.columns]
-            self.df_matchups.to_csv("matchups_shrunk.csv", columns=columns_to_save, index=False)
+            self.df_matchups.to_csv("data/matchups_shrunk.csv", columns=columns_to_save, index=False)
 
             self.update_overall_win_rates()
             self.on_recommend()
@@ -1078,8 +1078,8 @@ class ChampionPickerGUI(tk.Tk):
 ###############################################################################
 if __name__ == "__main__":
     # Load precomputed matchup data that includes dedicated columns
-    df_matchups = load_matchup_data("matchups_shrunk.csv")
-    df_priors = load_champion_priors("champion_priors.csv")
+    df_matchups = load_matchup_data("data/matchups_shrunk.csv")
+    df_priors = load_champion_priors("data/champion_priors.csv")
 
     # Initialize and run the GUI
     app = ChampionPickerGUI(df_matchups, df_priors)

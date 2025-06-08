@@ -24,9 +24,9 @@ from selenium.common.exceptions import (
 from webdriver_manager.chrome import ChromeDriverManager
 
 # Constants
-CHAMPION_LINKS_FILE = "champion_links.txt"
-CHAMPION_PRIORS_FILE = "champion_priors.csv"
-CSV_FILE = 'matchups.csv'
+CHAMPION_LINKS_FILE = "data/champion_links.txt"
+CHAMPION_PRIORS_FILE = "data/champion_priors.csv"
+CSV_FILE = 'data/matchups.csv'
 NUM_THREADS = 5
 QUEUE_TIMEOUT = 300  
 MAX_SCROLLS = 50
