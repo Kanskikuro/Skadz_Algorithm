@@ -909,20 +909,18 @@ class ChampionPickerGUI(tk.Tk):
                     text_lbl.grid(row=0, column=0, padx=(0, 5), sticky="nw")
 
                 win_pct = 100 * total_log_odds
-                delta_pct = 100 * total_delta
+                delta_pct = 10 * total_delta
 
                 # Create a small “text_frame” in row=0, column=1 that will stack two labels:
                 text_frame = ttk.Frame(subframe)
                 text_frame.grid(row=0, column=1, sticky="nw")
 
-                win_lbl = ttk.Label(text_frame, text=f"W:{win_pct:.0f}%", font=("Helvetica", 10))
+                win_lbl = ttk.Label(text_frame, text=f"W: {win_pct:.0f}%", font=("Helvetica", 10))
                 win_lbl.pack(anchor="w")
-                delta_lbl = ttk.Label(text_frame, text=f"Δ:{delta_pct:.0f}%", font=("Helvetica", 10))
+                delta_lbl = ttk.Label(text_frame, text=f"Δ: {delta_pct:.1f}", font=("Helvetica", 10))
                 delta_lbl.pack(anchor="sw")
 
                 self.icon_frames[role]['icons'].append(subframe)
-
-
 
                 if idx == 0:
                     excluded_base.add(champ)
