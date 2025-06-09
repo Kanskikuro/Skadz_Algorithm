@@ -1,4 +1,5 @@
 *.csv
+*.png
 !champion_priors.csv
 
 # Byte-compiled / optimized / DLL files
