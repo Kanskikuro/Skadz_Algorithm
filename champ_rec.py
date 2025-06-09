@@ -692,13 +692,16 @@ class ChampionPickerGUI(tk.Tk):
 
     def check_filled_roles(self):
         """
-        Hide any role’s suggestion-frame if that ally role is already filled.
-        Otherwise, ensure it's visible.
+        Hide any role’s suggestion-frame if that ally role is already filled
+        with a valid champion name. Otherwise, ensure it's visible.
         """
         for role, entry_widget in self.ally_champs.items():
             champ_name = entry_widget.get_text().strip()
-            self.toggle_role_visibility(role, visible=(not bool(champ_name)))
+            is_valid_champion = champ_name in self.champion_list
+            # only hide if it's a real champion
+            self.toggle_role_visibility(role, visible=(not is_valid_champion))
         self.rearrange_result_icons()
+
 
     def toggle_role_visibility(self, role, visible):
         """
