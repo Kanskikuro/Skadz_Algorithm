@@ -867,27 +867,31 @@ class ChampionPickerGUI(tk.Tk):
                 subframe = ttk.Frame(self.icon_frames[role]['container'])
                 subframe.grid(row=idx, column=0, padx=2, pady=2, sticky="w")
 
-                # Store only the champion’s name here:
                 subframe.champ_name = champ
 
+                # Icon goes in row=0, column=0
                 if photo is not None:
                     icon_lbl = ttk.Label(subframe, image=photo)
                     icon_lbl.image = photo
-                    icon_lbl.grid(row=0, column=0, padx=(0, 5))
+                    icon_lbl.grid(row=0, column=0, padx=(0, 5), sticky="nw")
                 else:
                     text_lbl = ttk.Label(subframe, text=champ, font=("Helvetica", 10))
-                    text_lbl.grid(row=0, column=0, padx=(0, 5))
+                    text_lbl.grid(row=0, column=0, padx=(0, 5), sticky="nw")
 
                 win_pct = 100 * total_log_odds
                 delta_pct = 100 * total_delta
 
-                # Win above Delta
-                win_lbl = ttk.Label(subframe, text=f"W:{win_pct:.0f}%", font=("Helvetica", 10))
-                win_lbl.grid(row=0, column=1, sticky="w")
-                delta_lbl = ttk.Label(subframe, text=f"Δ:{delta_pct:.0f}%", font=("Helvetica", 10))
-                delta_lbl.grid(row=1, column=1, sticky="w")
+                # Create a small “text_frame” in row=0, column=1 that will stack two labels:
+                text_frame = ttk.Frame(subframe)
+                text_frame.grid(row=0, column=1, sticky="nw")
+
+                win_lbl = ttk.Label(text_frame, text=f"W:{win_pct:.0f}%", font=("Helvetica", 10))
+                win_lbl.pack(anchor="w")
+                delta_lbl = ttk.Label(text_frame, text=f"Δ:{delta_pct:.0f}%", font=("Helvetica", 10))
+                delta_lbl.pack(anchor="sw")
 
                 self.icon_frames[role]['icons'].append(subframe)
+
 
 
                 if idx == 0:
