@@ -508,7 +508,6 @@ class AutocompleteEntryPopup(tk.Frame):
         else:
             self._hide_popup()
 
-
     def _show_popup(self, suggestions):
         self._hide_popup()
         self.current_suggestions = suggestions
@@ -689,39 +688,70 @@ class ChampionPickerGUI(tk.Tk):
         self.check_filled_roles()
         self.update_overall_win_rates()
         self.on_recommend()
-
+        
     def check_filled_roles(self):
         """
-        Hide any role’s suggestion-frame if that ally role is already filled.
-        Otherwise, ensure it's visible.
+        Called any time ally‐champ text changes OR the auto‐hide checkbox toggles.
+        We compute “should this role be visible?” for every role, then let
+        rearrange_result_icons() do all the actual grid/grid_forget calls.
         """
+        # 1) For each role, decide visible=True/False and store it somewhere.
+        #    Visible = “either auto_hide is OFF, or champ name is blank/invalid”.
         for role, entry_widget in self.ally_champs.items():
             champ_name = entry_widget.get_text().strip()
-            self.toggle_role_visibility(role, visible=(not bool(champ_name)))
+            is_valid_champion = (champ_name in self.champion_list)
+
+            # If auto_hide is True and the user has typed a VALID champ, hide it.
+            # Otherwise (auto_hide=False, or name blank/invalid), show it.
+            should_show = (not (is_valid_champion and self.auto_hide.get()))
+
+            # Store this boolean in a simple dict; rearrange_result_icons() will read it.
+            self.icon_frames[role]['should_be_visible'] = should_show
+
+        # 2) Now reposition ALL containers in one sweep.
         self.rearrange_result_icons()
+
 
     def toggle_role_visibility(self, role, visible):
         """
-        If auto_hide is True and visible is False, remove that role’s container.
-        Otherwise, re-grid it.
+        If auto_hide is True and visible is False, remove that role’s container
+        (grid_forget). Otherwise, leave it unmapped for now and let
+        rearrange_result_icons() do the actual grid() call.
         """
         container = self.icon_frames[role]['container']
         if not visible and self.auto_hide.get():
             container.grid_forget()
-        else:
-            container.grid()
+        # If visible is True, do NOT call container.grid() here.
+        # We'll let rearrange_result_icons() place it in the right spot.   
+
 
     def rearrange_result_icons(self):
         """
-        Re-grid visible role containers left to right in the order of roles_ally.
+        Forget (i.e. remove) all frames, then re‐grid only those where
+        'should_be_visible' is True, in the order of roles_ally.
+        This guarantees that anything we show always lands in row=0, col=0…N.
         """
-        visible_roles = [
-            role for role, info in self.icon_frames.items()
-            if info['container'].winfo_ismapped()
-        ]
-        for idx, role in enumerate(visible_roles):
-            self.icon_frames[role]['container'].grid(row=0, column=idx, padx=10, pady=5, sticky="nw")
+        # First, un‐grid everything.
+        for role, info in self.icon_frames.items():
+            info['container'].grid_forget()
 
+        # Build an ordered list of roles that should be visible.
+        # (Assume self.roles_ally is a list in the order you want.)
+        visible_roles = [
+            role for role in self.roles_ally
+            if (info := self.icon_frames.get(role))
+            and info.get('should_be_visible', True)
+        ]
+
+        # Now grid them left→right at row=0, col=0…len(visible_roles)-1.
+        for idx, role in enumerate(visible_roles):
+            self.icon_frames[role]['container'].grid(
+                row=0,
+                column=idx,
+                padx=10,
+                pady=5,
+                sticky="nw"
+            )
     def toggle_advanced_settings(self):
         """
         Show or hide the advanced settings frame based on self.advanced_visible.
