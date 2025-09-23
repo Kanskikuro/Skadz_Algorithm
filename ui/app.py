@@ -9,6 +9,9 @@ from core.enums import ROLES, STRATEGIES
 from core.repo import PriorsRepository, MatchupRepository
 
 from ui.autocompleteEntryPopup import AutocompleteEntryPopup
+from ui.controller import WinRateController
+from ui.view_adapter import TkWinRateViewAdapter
+from core.services.win_rate_service import WinRateService, WinRatePresenter
 
 
 ###############################################################################
@@ -32,6 +35,9 @@ class ChampionPickerGUI(tk.Tk):
         self.priors_repo = priors_repo
 
         self.df_matchups = self.matchup_repo.get_df()
+
+        
+
 
         # Champion list (for autocomplete + icons)
         self.champion_list: list[str] = self.priors_repo.champions()
@@ -58,6 +64,13 @@ class ChampionPickerGUI(tk.Tk):
 
         # Build the UI
         self._build_ui()
+
+        # Controllers
+        self.win_rate_controller = WinRateController(
+            TkWinRateViewAdapter(self.ally_champs, self.enemy_champ_boxes, self.overall_win_rate_label),
+            WinRateService(self.priors_repo, self.matchup_repo),
+            WinRatePresenter()
+        )
 
     def combined_callback(self):
         """
@@ -266,30 +279,7 @@ class ChampionPickerGUI(tk.Tk):
         self.check_filled_roles()
 
     def update_overall_win_rates(self):
-        """
-        Recompute ally vs. enemy team win rates and update the label.
-        """
-
-        # TODO sparate these values more form the ui
-        ally_team = {
-            r: e.get_text().strip()
-            for r, e in self.ally_champs.items()
-            if e.get_text().strip()
-        }
-        enemy_list = [e.get_text().strip() for e in self.enemy_champ_boxes if e.get_text().strip()]
-
-        ally_pct, enemy_pct = self.matchup_repo\
-        .update_overall_win_rates(
-            self.priors_repo,
-            enemy_list,
-            ally_team,
-        )
-
-        text = (
-            f"Estimated Ally Team Win Rate: {ally_pct:.2%}\n"
-            f"Estimated Enemy Team Win Rate: {enemy_pct:.2%}"
-        )
-        self.overall_win_rate_label.config(text=text)
+        self.win_rate_controller.on_update()
 
     def reset_all(self):
         """
