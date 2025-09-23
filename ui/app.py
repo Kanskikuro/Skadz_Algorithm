@@ -143,42 +143,8 @@ class ChampionPickerGUI(tk.Tk):
             self.advanced_frame.grid_remove()
 
     def recalculate_matchups(self):
-        """
-        Recompute Bayesian-shrunk win rates (and optionally Δ), re-index DataFrame,
-        save to CSV, then update overall win rates and recommendations.
-        """
         try:
-            m_value = self.m_var.get()
-            # Shrink win_rate toward 0.5*100% by m_value "pseudo-samples"
-            self.df_matchups['win_rate_shrunk_bayes'] = (
-                (self.df_matchups['win_rate'] * self.df_matchups['sample_size'] +
-                 50.0 * m_value) / (self.df_matchups['sample_size'] + m_value)
-            )
-            self.df_matchups['log_odds_bayes'] = self.df_matchups['win_rate_shrunk_bayes'].apply(win_rate_to_log_odds)
-
-            if 'delta' in self.df_matchups.columns:
-                self.df_matchups['delta_shrunk_bayes'] = (
-                    (self.df_matchups['delta'] * self.df_matchups['sample_size'] +
-                     0.0 * m_value) /
-                    (self.df_matchups['sample_size'] + m_value)
-                )
-
-            # Save relevant columns
-            desired_columns = [
-                "champ1", "role1", "type", "champ2", "role2",
-                "win_rate", "sample_size",
-                "win_rate_shrunk_bayes", "log_odds_bayes",
-                "win_rate_shrunk_advi", "log_odds_advi",
-                "win_rate_shrunk_hierarchical", "log_odds_hierarchical",
-            ]
-            if 'delta_shrunk_bayes' in self.df_matchups.columns:
-                desired_columns.append('delta_shrunk_bayes')
-            if 'delta' in self.df_matchups.columns:
-                desired_columns.append('delta')
-
-            columns_to_save = [c for c in desired_columns if c in self.df_matchups.columns]
-            self.df_matchups.to_csv("data/matchups_shrunk.csv", columns=columns_to_save, index=False)
-
+            self.matchup_repo.recalculate_matchups(self.m_var.get())
             # Refresh UI
             self.update_overall_win_rates()
             self.on_recommend()
