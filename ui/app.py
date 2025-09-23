@@ -34,7 +34,6 @@ class ChampionPickerGUI(tk.Tk):
         self.priors_repo = df_priors
 
         self.df_matchups = self.matchup_repo.get_df()
-        self.df_priors = self.priors_repo.get_df()
 
         # Champion list (for autocomplete + icons)
         self.champion_list: list[str] = self.priors_repo.champions()
@@ -221,7 +220,7 @@ class ChampionPickerGUI(tk.Tk):
 
         # ── Gather enemy champions and guess roles ────────────────────────────
         enemy_champs = [e.get_text().strip() for e in self.enemy_champ_boxes if e.get_text().strip()]
-        enemy_team = guess_enemy_roles(enemy_champs, self.df_priors)
+        enemy_team = guess_enemy_roles(enemy_champs, self.priors_repo)
 
         # Display “Akshan → middle” etc.
         guessed_text = ""
@@ -323,7 +322,7 @@ class ChampionPickerGUI(tk.Tk):
             if e.get_text().strip()
         }
         enemy_list = [e.get_text().strip() for e in self.enemy_champ_boxes if e.get_text().strip()]
-        enemy_team = guess_enemy_roles(enemy_list, self.df_priors)
+        enemy_team = guess_enemy_roles(enemy_list, self.priors_repo)
 
         ally_pct, enemy_pct = calculate_overall_win_rates(
             self.matchup_repo.indexed(), ally_team, enemy_team

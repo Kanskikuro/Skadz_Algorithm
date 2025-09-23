@@ -1,11 +1,12 @@
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 from math import log
+from core.repo import PriorsRepository
 
 ###############################################################################
 # Hungarian-based guess of roles for enemy champions
 ###############################################################################
-def guess_enemy_roles(enemy_champs, priors_df):
+def guess_enemy_roles(enemy_champs: list[str], priors_repo: PriorsRepository):
     """
     enemy_champs: list of championName (strings), e.g. ['Gragas', 'Yasuo', ...].
     priors_df:    DataFrame with columns [champion_name, top, jungle, middle, bottom, support].
@@ -14,6 +15,7 @@ def guess_enemy_roles(enemy_champs, priors_df):
              from those champions by maximizing prior probabilities,
              allowing any typed champion to take any of the 5 roles.
     """
+    priors_df = priors_repo.get_df()
 
     known = {}
     unknown = enemy_champs  # all typed champs we want to guess roles for
