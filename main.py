@@ -7,8 +7,8 @@ from ui.app import ChampionPickerGUI
 ###############################################################################
 if __name__ == "__main__":
     # Load precomputed matchup data that includes dedicated columns
-    dfm = MatchupRepository.from_csv("data/matchups_shrunk.csv").get_df()
-    fdp = PriorsRepository.from_csv("data/champion_priors.csv").get_df()
+    dfm = MatchupRepository.from_csv("data/matchups_shrunk.csv")
+    fdp = PriorsRepository.from_csv("data/champion_priors.csv")
 
     # Initialize and run the GUI
     app = ChampionPickerGUI(dfm, fdp)

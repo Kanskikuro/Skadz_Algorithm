@@ -7,6 +7,7 @@ from core.recommend import get_champion_scores_for_role
 from core.score import prepare_multiindex, win_rate_to_log_odds, calculate_overall_win_rates
 from core.role_guess import guess_enemy_roles
 from core.enums import ROLES
+from core.repo import PriorsRepository, MatchupRepository
 
 from ui.autocompleteEntryPopup import AutocompleteEntryPopup
 
@@ -18,7 +19,7 @@ class ChampionPickerGUI(tk.Tk):
     ICON_PATH_FORMAT = os.path.join("data", "champion_icons", "{}.png")
     ICON_SIZE = (64, 64)
 
-    def __init__(self, df_matchups, df_priors):
+    def __init__(self, df_matchups: MatchupRepository, df_priors: PriorsRepository):
         super().__init__()
         self.geometry("1280x920")
         self.minsize(700, 500)
@@ -29,9 +30,12 @@ class ChampionPickerGUI(tk.Tk):
         self.title("League Champion Picker")
 
         # Store and index matchups DataFrame
-        self.df_matchups = df_matchups
+        self.matchup_repo = df_matchups
+        self.priors_repo = df_priors
+
+        self.df_matchups = self.matchup_repo.get_df()
         self.df_matchups_indexed = prepare_multiindex(self.df_matchups)
-        self.df_priors = df_priors
+        self.df_priors = self.priors_repo.get_df()
 
         # Champion list (for autocomplete + icons)
         self.champion_list: list[str] = list(self.df_priors['champion_name'].unique())
