@@ -4,12 +4,14 @@ import os
 from PIL import Image, ImageTk 
 
 from core.recommend import get_champion_scores_for_role
-from core.score import win_rate_to_log_odds, calculate_overall_win_rates
 from core.role_guess import guess_enemy_roles
 from core.enums import ROLES, STRATEGIES
 from core.repo import PriorsRepository, MatchupRepository
 
 from ui.autocompleteEntryPopup import AutocompleteEntryPopup
+from ui.controller import WinRateController
+from ui.view_adapter import TkWinRateViewAdapter
+from core.services import WinRateService, WinRatePresenter
 
 
 ###############################################################################
@@ -23,17 +25,19 @@ class ChampionPickerGUI(tk.Tk):
         super().__init__()
         self.geometry("1280x920")
         self.minsize(700, 500)
+        self.title("League Champion Picker")
 
         # Roles on the ally side
         self.roles_ally = ROLES
-
-        self.title("League Champion Picker")
 
         # Store and index matchups DataFrame
         self.matchup_repo = matchup_repo
         self.priors_repo = priors_repo
 
         self.df_matchups = self.matchup_repo.get_df()
+
+        
+
 
         # Champion list (for autocomplete + icons)
         self.champion_list: list[str] = self.priors_repo.champions()
@@ -61,6 +65,13 @@ class ChampionPickerGUI(tk.Tk):
         # Build the UI
         self._build_ui()
 
+        # Controllers
+        self.win_rate_controller = WinRateController(
+            TkWinRateViewAdapter(self.ally_champs, self.enemy_champ_boxes, self.overall_win_rate_label),
+            WinRateService(self.priors_repo, self.matchup_repo),
+            WinRatePresenter()
+        )
+
     def combined_callback(self):
         """
         Called whenever any AutocompleteEntryPopup changes.
@@ -72,7 +83,7 @@ class ChampionPickerGUI(tk.Tk):
         
     def check_filled_roles(self):
         """
-        Called any time ally‐champ text changes OR the auto‐hide checkbox toggles.
+        Called any time ally-champ text changes OR the auto-hide checkbox toggles.
         We compute “should this role be visible?” for every role, then let
         rearrange_result_icons() do all the actual grid/grid_forget calls.
         """
@@ -171,11 +182,8 @@ class ChampionPickerGUI(tk.Tk):
         """
         # ── Update log_odds in df_matchups ───────────────────────────────────
         method = self.adjustment_method.get().lower()
-        log_col = f'log_odds_{method}'
-        if log_col in self.df_matchups.columns:
-            self.df_matchups['log_odds'] = self.df_matchups[log_col]
-        else:
-            self.df_matchups['log_odds'] = self.df_matchups['log_odds_bayes']
+        
+        self.matchup_repo._create_column(method)
 
         # ── Build ally_team dict ──────────────────────────────────────────────
         ally_team = {}
@@ -271,33 +279,7 @@ class ChampionPickerGUI(tk.Tk):
         self.check_filled_roles()
 
     def update_overall_win_rates(self):
-        """
-        Recompute ally vs. enemy team win rates and update the label.
-        """
-        method = self.adjustment_method.get().lower()
-        log_col = f'log_odds_{method}'
-        if log_col in self.df_matchups.columns:
-            self.df_matchups['log_odds'] = self.df_matchups[log_col]
-        else:
-            self.df_matchups['log_odds'] = self.df_matchups['log_odds_bayes']
-
-
-        ally_team = {
-            r: e.get_text().strip()
-            for r, e in self.ally_champs.items()
-            if e.get_text().strip()
-        }
-        enemy_list = [e.get_text().strip() for e in self.enemy_champ_boxes if e.get_text().strip()]
-        enemy_team = guess_enemy_roles(enemy_list, self.priors_repo)
-
-        ally_pct, enemy_pct = calculate_overall_win_rates(
-            self.matchup_repo.indexed(), ally_team, enemy_team
-        )
-        text = (
-            f"Estimated Ally Team Win Rate: {ally_pct:.2%}\n"
-            f"Estimated Enemy Team Win Rate: {enemy_pct:.2%}"
-        )
-        self.overall_win_rate_label.config(text=text)
+        self.win_rate_controller.on_update()
 
     def reset_all(self):
         """

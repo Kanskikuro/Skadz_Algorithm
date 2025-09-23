@@ -1,6 +1,9 @@
 import pandas as pd
 import numpy as np
 
+from core.score import calculate_overall_win_rates
+from core.role_guess import guess_enemy_roles
+
 IDX_COLS = ['champ1', 'role1', 'type', 'champ2', 'role2']
 
 ###############################################################################
@@ -38,6 +41,15 @@ class MatchupRepository:
             return df.assign(log_odds=lo)
 
         raise ValueError("No source for log_odds")
+
+    def _create_column(self, method: str = "Bayesian") -> None:
+        method = method.lower()
+        log_col = f'log_odds_{method}'
+        if log_col in self.df.columns:
+            self.df['log_odds'] = self.df[log_col]
+        else:
+            self.df['log_odds'] = self.df['log_odds_bayes']
+
 
     ## PUBLIC
     def indexed(self, method: str = "Bayesian") -> pd.DataFrame:
@@ -80,4 +92,21 @@ class MatchupRepository:
             "delta","delta_shrunk_bayes","log_odds"  # ok if missing
         ]
         self.df.to_csv(path, columns=[c for c in cols if c in self.df.columns], index=False)
+    
+    def update_overall_win_rates(self, priors_repo, enemy_list, ally_team, method: str = "Bayesian" ) -> tuple[float, float]:
+        """
+        Recompute ally vs. enemy team win rates and update the label.
+        """
+        method = method.lower()
+
+        self._create_column(method)
+
+        enemy_team = guess_enemy_roles(enemy_list, priors_repo)
+
+        ally_pct, enemy_pct = calculate_overall_win_rates(
+            self.indexed(method), ally_team, enemy_team
+        )
+
+        return ally_pct, enemy_pct
+
         

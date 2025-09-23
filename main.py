@@ -3,7 +3,7 @@ from core.repo import MatchupRepository, PriorsRepository
 from ui.app import ChampionPickerGUI
 
 ##############################################################################
-# 8) Run the GUI
+# Run the GUI
 ###############################################################################
 if __name__ == "__main__":
     # Load precomputed matchup data that includes dedicated columns
