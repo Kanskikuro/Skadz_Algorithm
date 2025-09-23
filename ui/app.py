@@ -1,8 +1,5 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-import pandas as pd
-import numpy as np
-import pyperclip
 import os
 from PIL import Image, ImageTk 
 
