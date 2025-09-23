@@ -11,7 +11,7 @@ from core.repo import PriorsRepository, MatchupRepository
 from ui.autocompleteEntryPopup import AutocompleteEntryPopup
 from ui.controller import WinRateController
 from ui.view_adapter import TkWinRateViewAdapter
-from core.services.win_rate_service import WinRateService, WinRatePresenter
+from core.services import WinRateService, WinRatePresenter
 
 
 ###############################################################################

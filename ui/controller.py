@@ -1,5 +1,5 @@
 from ui.view_adapter import TkWinRateViewAdapter
-from core.services.win_rate_service import WinRateService, WinRatePresenter
+from core.services import WinRateService, WinRatePresenter
 
 
 class WinRateController:

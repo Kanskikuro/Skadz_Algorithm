@@ -1,4 +1,4 @@
-from core.services.win_rate_service import TeamInput
+from core.services import TeamInput
 
 class TkWinRateViewAdapter:
     def __init__(self, ally_champs: dict, enemy_widgets: list, list_widget):
