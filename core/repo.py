@@ -9,6 +9,12 @@ class MatchupRepository:
     @classmethod
     def from_csv(cls, path: str): return cls(pd.read_csv(path))
     def get_df(self) -> pd.DataFrame: return self.df # Temporary
+    def indexed(self) -> pd.DataFrame:
+        # Create a multi-index based on columns commonly used in lookups.
+        df = self.df.copy()
+        df_indexed = df.set_index(['champ1', 'role1', 'type', 'champ2', 'role2'])
+        return df_indexed.sort_index()  # Sort the index for optimal performance
+        
 
 
 

@@ -4,7 +4,7 @@ import os
 from PIL import Image, ImageTk 
 
 from core.recommend import get_champion_scores_for_role
-from core.score import prepare_multiindex, win_rate_to_log_odds, calculate_overall_win_rates
+from core.score import win_rate_to_log_odds, calculate_overall_win_rates
 from core.role_guess import guess_enemy_roles
 from core.enums import ROLES
 from core.repo import PriorsRepository, MatchupRepository
@@ -34,7 +34,7 @@ class ChampionPickerGUI(tk.Tk):
         self.priors_repo = df_priors
 
         self.df_matchups = self.matchup_repo.get_df()
-        self.df_matchups_indexed = prepare_multiindex(self.df_matchups)
+        # self.df_matchups_indexed = prepare_multiindex(self.df_matchups)
         self.df_priors = self.priors_repo.get_df()
 
         # Champion list (for autocomplete + icons)
@@ -166,7 +166,7 @@ class ChampionPickerGUI(tk.Tk):
                 )
 
             # Re-index
-            self.df_matchups_indexed = prepare_multiindex(self.df_matchups)
+            # self.df_matchups_indexed = prepare_multiindex(self.df_matchups)
 
             # Save relevant columns
             desired_columns = [
@@ -216,7 +216,7 @@ class ChampionPickerGUI(tk.Tk):
         else:
             self.df_matchups['log_odds'] = self.df_matchups['log_odds_bayes']
 
-        self.df_matchups_indexed = prepare_multiindex(self.df_matchups)
+        # self.df_matchups_indexed = prepare_multiindex(self.df_matchups)
 
         # ── Build ally_team dict ──────────────────────────────────────────────
         ally_team = {}
@@ -252,7 +252,7 @@ class ChampionPickerGUI(tk.Tk):
             # Compute scores for this role
             excluded_dynamic = set(excluded_base)
             scores = get_champion_scores_for_role(
-                df_indexed=self.df_matchups_indexed,
+                df_indexed=self.matchup_repo.indexed(),
                 role_to_fill=role,
                 ally_team=ally_team,
                 enemy_team=enemy_team,
@@ -322,7 +322,7 @@ class ChampionPickerGUI(tk.Tk):
         else:
             self.df_matchups['log_odds'] = self.df_matchups['log_odds_bayes']
 
-        self.df_matchups_indexed = prepare_multiindex(self.df_matchups)
+        # self.df_matchups_indexed = prepare_multiindex(self.df_matchups)
 
         ally_team = {
             r: e.get_text().strip()
@@ -333,7 +333,7 @@ class ChampionPickerGUI(tk.Tk):
         enemy_team = guess_enemy_roles(enemy_list, self.df_priors)
 
         ally_pct, enemy_pct = calculate_overall_win_rates(
-            self.df_matchups_indexed, ally_team, enemy_team
+            self.matchup_repo.indexed(), ally_team, enemy_team
         )
         text = (
             f"Estimated Ally Team Win Rate: {ally_pct:.2%}\n"
