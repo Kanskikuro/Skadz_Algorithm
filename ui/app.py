@@ -6,7 +6,7 @@ from PIL import Image, ImageTk
 from core.recommend import get_champion_scores_for_role
 from core.score import win_rate_to_log_odds, calculate_overall_win_rates
 from core.role_guess import guess_enemy_roles
-from core.enums import ROLES
+from core.enums import ROLES, STRATEGIES
 from core.repo import PriorsRepository, MatchupRepository
 
 from ui.autocompleteEntryPopup import AutocompleteEntryPopup
@@ -403,7 +403,7 @@ class ChampionPickerGUI(tk.Tk):
         strategy_dropdown = ttk.Combobox(
             strategy_frame,
             textvariable=self.pick_strategy_var,
-            values=["Maximize", "Minimax"],
+            values=STRATEGIES,
             font=bigger_font,
             state="readonly",
             width=10
