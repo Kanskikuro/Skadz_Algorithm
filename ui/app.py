@@ -10,17 +10,6 @@ from PIL import Image, ImageTk
 
 
 
-###############################################################################
-# 1) Load synergy/counter data
-###############################################################################
-def load_matchup_data(csv_path: str) -> pd.DataFrame:
-    return pd.read_csv(csv_path)
-
-###############################################################################
-# 2) Load champion priors (and full champion list) for Bayesian role-guessing
-###############################################################################
-def load_champion_priors(csv_path: str) -> pd.DataFrame:
-    return pd.read_csv(csv_path)
 
 ###############################################################################
 # 3) Hungarian-based guess of roles for enemy champions
@@ -1187,15 +1176,3 @@ class ChampionPickerGUI(tk.Tk):
         # ── OVERALL WIN RATE LABEL ────────────────────────────────────────────────────
         self.overall_win_rate_label = ttk.Label(self, text="", justify="left", font=bigger_font)
         self.overall_win_rate_label.grid(row=0, column=1, rowspan=2, padx=10, pady=5, sticky="nw")
-
-##############################################################################
-# 8) Run the GUI
-###############################################################################
-if __name__ == "__main__":
-    # Load precomputed matchup data that includes dedicated columns
-    df_matchups = load_matchup_data("data/matchups_shrunk.csv")
-    df_priors = load_champion_priors("data/champion_priors.csv")
-
-    # Initialize and run the GUI
-    app = ChampionPickerGUI(df_matchups, df_priors)
-    app.mainloop()
