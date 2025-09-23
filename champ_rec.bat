@@ -1,5 +1,7 @@
 @echo off
-"D:\Nedlastninger\app\SKADZALGORITM\champ_rec\.venv\Scripts\python.exe" "D:\Nedlastninger\app\SKADZALGORITM\champ_rec\champ_rec.py"
+call "%~dp0.venv\Scripts\activate.bat"
+python "%~dp0champ_rec.py"
+
 pause
 
 

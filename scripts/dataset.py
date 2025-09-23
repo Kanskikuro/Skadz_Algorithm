@@ -89,10 +89,16 @@ def save_to_csv(data, filename=CSV_FILE):
             writer.writerow(data)
     logger.debug(f"Saved data to CSV: {data}")
 
+def sanitize_name(name):
+    # Lowercase, remove spaces and non-alphanumeric characters (keep only a-z, 0-9, and _)
+    sanitized = re.sub(r'[^a-zA-Z0-9_]', '', name.replace(" ", "_"))
+    return sanitized.lower()
+
 def save_champion_priors(champion_data):
     """
     Writes champion_data to champion_priors.csv with columns:
     champion_name, top, jungle, middle, bottom, support
+    Champion names are sanitized to contain no spaces or special characters.
     """
     with open(CHAMPION_PRIORS_FILE, mode="w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
@@ -100,8 +106,9 @@ def save_champion_priors(champion_data):
 
         # Sort champions alphabetically
         for champ_name in sorted(champion_data.keys()):
+            clean_name = sanitize_name(champ_name)
             row = [
-                champ_name,
+                clean_name,
                 champion_data[champ_name]["top"],
                 champion_data[champ_name]["jungle"],
                 champion_data[champ_name]["middle"],
