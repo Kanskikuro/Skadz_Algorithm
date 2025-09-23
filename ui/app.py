@@ -37,7 +37,7 @@ class ChampionPickerGUI(tk.Tk):
         self.df_priors = self.priors_repo.get_df()
 
         # Champion list (for autocomplete + icons)
-        self.champion_list: list[str] = list(self.df_priors['champion_name'].unique())
+        self.champion_list: list[str] = self.priors_repo.champions()
 
         # Pre-load champion icons
         self.champion_icons: dict[str, ImageTk.PhotoImage | None] = {}

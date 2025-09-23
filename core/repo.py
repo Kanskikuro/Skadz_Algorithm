@@ -30,3 +30,4 @@ class PriorsRepository:
     @classmethod
     def from_csv(cls, path: str): return cls(pd.read_csv(path))
     def get_df(self) -> pd.DataFrame: return self.df # Temporary
+    def champions(self) -> list[str]: return list(self.df["champion_name"].unique())
