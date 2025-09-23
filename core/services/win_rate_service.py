@@ -27,3 +27,11 @@ class WinRateService:
         )
 
         return WinRateEstimate(ally_pct, enemy_pct)
+    
+class WinRatePresenter:
+    @staticmethod
+    def to_label_text(est: WinRateEstimate):
+        return (
+            f"Estimated Ally Team Win Rate: {est.ally_pct:.2%}\n"
+            f"Estimated Enemy Team Win Rate: {est.enemy_pct:.2%}"
+        )
