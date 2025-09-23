@@ -70,7 +70,7 @@ class ChampionPickerGUI(tk.Tk):
         
     def check_filled_roles(self):
         """
-        Called any time ally‐champ text changes OR the auto‐hide checkbox toggles.
+        Called any time ally-champ text changes OR the auto-hide checkbox toggles.
         We compute “should this role be visible?” for every role, then let
         rearrange_result_icons() do all the actual grid/grid_forget calls.
         """
@@ -169,11 +169,8 @@ class ChampionPickerGUI(tk.Tk):
         """
         # ── Update log_odds in df_matchups ───────────────────────────────────
         method = self.adjustment_method.get().lower()
-        log_col = f'log_odds_{method}'
-        if log_col in self.df_matchups.columns:
-            self.df_matchups['log_odds'] = self.df_matchups[log_col]
-        else:
-            self.df_matchups['log_odds'] = self.df_matchups['log_odds_bayes']
+        
+        self.matchup_repo._create_column(method)
 
         # ── Build ally_team dict ──────────────────────────────────────────────
         ally_team = {}

@@ -42,6 +42,15 @@ class MatchupRepository:
 
         raise ValueError("No source for log_odds")
 
+    def _create_column(self, method: str = "Bayesian") -> None:
+        method = method.lower()
+        log_col = f'log_odds_{method}'
+        if log_col in self.df.columns:
+            self.df['log_odds'] = self.df[log_col]
+        else:
+            self.df['log_odds'] = self.df['log_odds_bayes']
+
+
     ## PUBLIC
     def indexed(self, method: str = "Bayesian") -> pd.DataFrame:
         key = method.lower()
@@ -90,17 +99,12 @@ class MatchupRepository:
         """
         method = method.lower()
 
-        log_col = f'log_odds_{method}'
-        if log_col in self.df.columns:
-            self.df['log_odds'] = self.df[log_col]
-        else:
-            self.df['log_odds'] = self.df['log_odds_bayes']
-
+        self._create_column(method)
 
         enemy_team = guess_enemy_roles(enemy_list, priors_repo)
 
         ally_pct, enemy_pct = calculate_overall_win_rates(
-            self.indexed(), ally_team, enemy_team
+            self.indexed(method), ally_team, enemy_team
         )
 
         return ally_pct, enemy_pct
