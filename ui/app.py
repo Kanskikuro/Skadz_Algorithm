@@ -19,7 +19,7 @@ class ChampionPickerGUI(tk.Tk):
     ICON_PATH_FORMAT = os.path.join("data", "champion_icons", "{}.png")
     ICON_SIZE = (64, 64)
 
-    def __init__(self, df_matchups: MatchupRepository, df_priors: PriorsRepository):
+    def __init__(self, matchup_repo: MatchupRepository, priors_repo: PriorsRepository):
         super().__init__()
         self.geometry("1280x920")
         self.minsize(700, 500)
@@ -30,8 +30,8 @@ class ChampionPickerGUI(tk.Tk):
         self.title("League Champion Picker")
 
         # Store and index matchups DataFrame
-        self.matchup_repo = df_matchups
-        self.priors_repo = df_priors
+        self.matchup_repo = matchup_repo
+        self.priors_repo = priors_repo
 
         self.df_matchups = self.matchup_repo.get_df()
 
