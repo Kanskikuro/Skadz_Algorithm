@@ -6,6 +6,7 @@ from PIL import Image, ImageTk
 from core.recommend import get_champion_scores_for_role
 from core.score import prepare_multiindex, win_rate_to_log_odds, calculate_overall_win_rates
 from core.role_guess import guess_enemy_roles
+from core.enums import ROLES
 
 from ui.autocompleteEntryPopup import AutocompleteEntryPopup
 
@@ -23,7 +24,7 @@ class ChampionPickerGUI(tk.Tk):
         self.minsize(700, 500)
 
         # Roles on the ally side
-        self.roles_ally = ["top", "jungle", "middle", "bottom", "support"]
+        self.roles_ally = ROLES
 
         self.title("League Champion Picker")
 
