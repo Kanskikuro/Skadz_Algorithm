@@ -250,9 +250,12 @@ def get_champion_scores_for_role(
         return []
 
     all_role_candidates = subset.reset_index()["champ1"].unique().tolist()
-    # Also ensure we include anything from champion_pool if needed:
-    all_role_candidates = sorted(
-        list(set(all_role_candidates + champion_pool)))
+    # Ensure both are lists before concatenation
+    if not isinstance(all_role_candidates, list):
+        all_role_candidates = [all_role_candidates]
+    if not isinstance(champion_pool, list):
+        champion_pool = list(champion_pool) if champion_pool is not None else []
+    all_role_candidates = sorted(list(set(all_role_candidates + champion_pool)))
 
     # Filter out champions that are excluded (already picked or banned)
     candidates = [
@@ -473,8 +476,7 @@ class AutocompleteEntryPopup(tk.Frame):
       - A tk.Entry for user input
       - A popup tk.Toplevel with a tk.Listbox of suggestions
     """
-
-    def __init__(self, master, suggestion_list=None, width=30, font=None, callback=None, *args, **kwargs):
+    def __init__(self, master, suggestion_list=None, width=30, font=("Helvetica", 10), callback=None, *args, **kwargs):
         super().__init__(master, *args, **kwargs)
         self.callback = callback
         self.suggestion_list = suggestion_list or []
@@ -743,31 +745,18 @@ class ChampionPickerGUI(tk.Tk):
         self.df_priors = df_priors
 
         # Champion list (for autocomplete + icons)
-        self.champion_list = list(self.df_priors['champion_name'].unique())
+        self.champion_list: list[str] = list(self.df_priors['champion_name'].unique())
 
-        # banned champ list
-        self.banned_champions_names = list()
-        self.ban_entries = []
-
-        # Pre-load champion icons (regular size)
-        self.champion_icons = {}
-        # New: Pre-load ban‐size icons
-        self.banned_champion_icons = {}
-
+        # Pre-load champion icons
+        self.champion_icons: dict[str, ImageTk.PhotoImage | None] = {}
         for champ in self.champion_list:
             path = ChampionPickerGUI.ICON_PATH_FORMAT.format(champ)
             if os.path.exists(path):
-                pil = Image.open(path)
-                # regular
-                pil_reg = pil.resize(
-                    ChampionPickerGUI.ICON_SIZE, Image.LANCZOS)
-                self.champion_icons[champ] = ImageTk.PhotoImage(pil_reg)
-                # small for bans (half size, for example)
-                small_size = (
-                    ChampionPickerGUI.ICON_SIZE[0]//2, ChampionPickerGUI.ICON_SIZE[1]//2)
-                pil_small = pil.resize(small_size, Image.LANCZOS)
-                self.banned_champion_icons[champ] = ImageTk.PhotoImage(
-                    pil_small)
+                pil_img = Image.open(path).resize(
+                    ChampionPickerGUI.ICON_SIZE,
+                    resample=Image.LANCZOS # type: ignore
+                )
+                self.champion_icons[champ] = ImageTk.PhotoImage(pil_img)
             else:
                 print(f"⚠️ Icon not found for '{champ}' at {path}")
                 self.champion_icons[champ] = None
@@ -1059,12 +1048,13 @@ class ChampionPickerGUI(tk.Tk):
 
                 subframe = ttk.Frame(self.icon_frames[role]['container'])
                 subframe.grid(row=idx, column=0, padx=2, pady=2, sticky="w")
-                subframe.champ_name = champ
+
+                subframe.champ_name = champ # type: ignore
 
                 # Icon
                 if photo is not None:
                     icon_lbl = ttk.Label(subframe, image=photo)
-                    icon_lbl.image = photo
+                    icon_lbl.image = photo # type: ignore
                     icon_lbl.grid(row=0, column=0, padx=(0, 5), sticky="nw")
                 else:
                     text_lbl = ttk.Label(
