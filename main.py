@@ -1,4 +1,5 @@
-from core.repo import load_champion_priors, load_matchup_data
+from core.repo import MatchupRepository, PriorsRepository
+
 from ui.app import ChampionPickerGUI
 
 ##############################################################################
@@ -6,9 +7,9 @@ from ui.app import ChampionPickerGUI
 ###############################################################################
 if __name__ == "__main__":
     # Load precomputed matchup data that includes dedicated columns
-    df_matchups = load_matchup_data("data/matchups_shrunk.csv")
-    df_priors = load_champion_priors("data/champion_priors.csv")
+    dfm = MatchupRepository.from_csv("data/matchups_shrunk.csv").get_df()
+    fdp = PriorsRepository.from_csv("data/champion_priors.csv").get_df()
 
     # Initialize and run the GUI
-    app = ChampionPickerGUI(df_matchups, df_priors)
+    app = ChampionPickerGUI(dfm, fdp)
     app.mainloop()
