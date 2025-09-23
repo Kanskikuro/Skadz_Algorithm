@@ -4,11 +4,6 @@ from math import log, exp
 ###############################################################################
 # 4) Synergy/Delta scoring
 ###############################################################################
-# def prepare_multiindex(df):
-#     # Create a multi-index based on columns commonly used in lookups.
-#     df_indexed = df.set_index(['champ1', 'role1', 'type', 'champ2', 'role2'])
-#     return df_indexed.sort_index()  # Sort the index for optimal performance
-
 def log_odds_to_probability(log_odds):
     return 1 / (1 + exp(-log_odds))
 

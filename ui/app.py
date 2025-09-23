@@ -34,7 +34,6 @@ class ChampionPickerGUI(tk.Tk):
         self.priors_repo = df_priors
 
         self.df_matchups = self.matchup_repo.get_df()
-        # self.df_matchups_indexed = prepare_multiindex(self.df_matchups)
         self.df_priors = self.priors_repo.get_df()
 
         # Champion list (for autocomplete + icons)
@@ -165,9 +164,6 @@ class ChampionPickerGUI(tk.Tk):
                     (self.df_matchups['sample_size'] + m_value)
                 )
 
-            # Re-index
-            # self.df_matchups_indexed = prepare_multiindex(self.df_matchups)
-
             # Save relevant columns
             desired_columns = [
                 "champ1", "role1", "type", "champ2", "role2",
@@ -215,8 +211,6 @@ class ChampionPickerGUI(tk.Tk):
             self.df_matchups['log_odds'] = self.df_matchups[log_col]
         else:
             self.df_matchups['log_odds'] = self.df_matchups['log_odds_bayes']
-
-        # self.df_matchups_indexed = prepare_multiindex(self.df_matchups)
 
         # ── Build ally_team dict ──────────────────────────────────────────────
         ally_team = {}
@@ -322,7 +316,6 @@ class ChampionPickerGUI(tk.Tk):
         else:
             self.df_matchups['log_odds'] = self.df_matchups['log_odds_bayes']
 
-        # self.df_matchups_indexed = prepare_multiindex(self.df_matchups)
 
         ally_team = {
             r: e.get_text().strip()
