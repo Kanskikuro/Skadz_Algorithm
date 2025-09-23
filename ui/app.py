@@ -23,11 +23,10 @@ class ChampionPickerGUI(tk.Tk):
         super().__init__()
         self.geometry("1280x920")
         self.minsize(700, 500)
+        self.title("League Champion Picker")
 
         # Roles on the ally side
         self.roles_ally = ROLES
-
-        self.title("League Champion Picker")
 
         # Store and index matchups DataFrame
         self.matchup_repo = matchup_repo
@@ -274,25 +273,23 @@ class ChampionPickerGUI(tk.Tk):
         """
         Recompute ally vs. enemy team win rates and update the label.
         """
-        method = self.adjustment_method.get().lower()
-        log_col = f'log_odds_{method}'
-        if log_col in self.df_matchups.columns:
-            self.df_matchups['log_odds'] = self.df_matchups[log_col]
-        else:
-            self.df_matchups['log_odds'] = self.df_matchups['log_odds_bayes']
 
-
+        # TODO sparate these values more form the ui
         ally_team = {
             r: e.get_text().strip()
             for r, e in self.ally_champs.items()
             if e.get_text().strip()
         }
         enemy_list = [e.get_text().strip() for e in self.enemy_champ_boxes if e.get_text().strip()]
-        enemy_team = guess_enemy_roles(enemy_list, self.priors_repo)
 
-        ally_pct, enemy_pct = calculate_overall_win_rates(
-            self.matchup_repo.indexed(), ally_team, enemy_team
+        ally_pct, enemy_pct = self.matchup_repo\
+        .update_overall_win_rates(
+            self.priors_repo,
+            enemy_list,
+            ally_team,
         )
+
+
         text = (
             f"Estimated Ally Team Win Rate: {ally_pct:.2%}\n"
             f"Estimated Enemy Team Win Rate: {enemy_pct:.2%}"
