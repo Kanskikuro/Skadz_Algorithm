@@ -1,11 +1,8 @@
 
 import pandas as pd
 ###############################################################################
-# Load synergy/counter data
+# Synergy/counter data
 ###############################################################################
-def load_matchup_data(csv_path: str) -> pd.DataFrame:
-    return pd.read_csv(csv_path)
-
 class MatchupRepository:
     def __init__(self, df: pd.DataFrame): 
         self.df = df
@@ -16,7 +13,7 @@ class MatchupRepository:
 
 
 ###############################################################################
-# Load champion priors (and full champion list) for Bayesian role-guessing
+# Champion priors (and full champion list) for Bayesian role-guessing
 ###############################################################################
 def load_champion_priors(csv_path: str) -> pd.DataFrame:
     return pd.read_csv(csv_path)
