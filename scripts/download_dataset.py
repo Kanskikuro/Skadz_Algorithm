@@ -21,7 +21,11 @@ from selenium.common.exceptions import (
     TimeoutException,
     NoSuchElementException,
 )
+from playwright.sync_api import sync_playwright
+import random, time, logging
 from webdriver_manager.chrome import ChromeDriverManager
+import subprocess
+import atexit
 
 # Constants
 CHAMPION_LINKS_FILE = "data/champion_links.txt"
@@ -218,13 +222,18 @@ def process_champion(champion_link):
     user_agent = random.choice(USER_AGENTS)
     options.add_argument(f'user-agent={user_agent}')
 
-    service = Service(ChromeDriverManager().install())
+    service = Service(ChromeDriverManager().install(), log_output=subprocess.DEVNULL)
     driver = webdriver.Chrome(service=service, options=options)
     wait = WebDriverWait(driver, 20)
 
     try:
         logger.debug(f"Navigating to {champion_link}")
-        driver.get(champion_link)
+        driver.set_page_load_timeout(60)  # timeout in seconds
+        try:
+            driver.get(champion_link)
+        except TimeoutException:
+            logger.error(f"Timeout loading {champion_link}")
+            return
         wait.until(EC.presence_of_element_located((By.XPATH, "//h1[contains(@class, 'font-bold')]")))
         logger.debug("Page loaded successfully.")
 
@@ -293,10 +302,15 @@ def process_champion(champion_link):
         pause_duration = random.uniform(1, 3)
         logger.debug(f"Pausing for {pause_duration:.2f} seconds to respect rate limits.")
         time.sleep(pause_duration)
+        if random.random() < 0.1:  # 10% chance
+            extra_pause = random.uniform(3, 6)
+            logger.info(f"Extra pause for rate-limit safety: {extra_pause:.2f}s")
+            time.sleep(extra_pause)
     except Exception as e:
         logger.error(f"Error processing champion {champion_link}: {e}")
     finally:
         driver.quit()
+        atexit.register(lambda: os.system("taskkill /F /IM chrome.exe /T >nul 2>&1"))
         logger.debug(f"Closed WebDriver for {champion_link}")
 
 def worker(queue):
@@ -325,14 +339,25 @@ def main():
         logger.info(f"Loaded {len(all_links)} champion links from file.")
     else:
         # We do NOT have champion links -> scrape them from each tier list URL
+        # Doesnt fully ignore website notifications.
         options = Options()
-        options.add_argument('--headless')
+        options.add_argument("--headless=new")  
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
+        options.add_argument("--disable-gpu")
+        options.add_argument("--disable-software-rasterizer")
+        options.add_argument("--disable-accelerated-2d-canvas")
+        options.add_argument("--disable-features=VizDisplayCompositor")
+        options.add_argument("--disable-extensions")
+        options.add_argument("--disable-infobars")
+        options.add_argument("--disable-popup-blocking")
+        options.add_argument("--window-size=1920,1080")
+        options.add_argument("--enable-unsafe-swiftshader")  
         user_agent = random.choice(USER_AGENTS)
-        options.add_argument(f'user-agent={user_agent}')
+        options.add_argument(f"user-agent={user_agent}")
 
-        service = Service(ChromeDriverManager().install())
+
+        service = Service(ChromeDriverManager().install(), log_output=subprocess.DEVNULL)
         driver = webdriver.Chrome(service=service, options=options)
         wait = WebDriverWait(driver, 10)
 
