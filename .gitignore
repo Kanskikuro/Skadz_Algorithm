@@ -1,7 +1,7 @@
 *.csv
 *.png
 !champion_priors.csv
-
+*.db
 .vscode/
 
 # Byte-compiled / optimized / DLL files
