@@ -10,4 +10,7 @@ class RecommendController:
 
     def on_recommend(self):
         self.service.update_adjustments()
-        return self.service.recommend(self.view.get_team_state())
+        recommend_result = self.service.recommend(self.view.get_team_state())
+        self.view.update_enemy_guess_label(recommend_result.enemy_team_role_guess)
+
+        return recommend_result
