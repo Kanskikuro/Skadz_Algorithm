@@ -198,7 +198,6 @@ class ChampionPickerGUI(tk.Tk):
         self.enemy_guess_label.config(text=guessed_text)
 
         chosen_metric = self.display_metric_var.get()
-        excluded_base = set(ally_team.values()) | set(enemy_team.values()) | set(self.get_banned_champions())
 
         # Ensure the Suggested Picks area is visible before drawing
         self.results_frame.grid()
@@ -212,7 +211,6 @@ class ChampionPickerGUI(tk.Tk):
             self.icon_frames[role]['icons'].clear()
 
             # Compute scores for this role
-            excluded_dynamic = set(excluded_base)
             scores = get_champion_scores_for_role(
                 df_indexed=self.matchup_repo.indexed(),
                 role_to_fill=role,
@@ -223,7 +221,6 @@ class ChampionPickerGUI(tk.Tk):
                     else "Maximize"
                 ),
                 champion_pool=self.champion_list,
-                excluded_champions=excluded_dynamic
             )
 
             # Sort by Delta or WinRate
@@ -267,9 +264,6 @@ class ChampionPickerGUI(tk.Tk):
 
                 self.icon_frames[role]['icons'].append(subframe)
 
-                if idx == 0:
-                    excluded_base.add(champ)
-
         # Re-apply auto-hide logic
         self.check_filled_roles()
 
@@ -284,8 +278,6 @@ class ChampionPickerGUI(tk.Tk):
             e.entry_var.set("")
         for e in self.enemy_champ_boxes:
             e.entry_var.set("")
-        for b in self.ban_champ_boxes:
-            b.entry_var.set("")
 
         for role in self.roles_ally:
             for widget in self.icon_frames[role]['icons']:
@@ -297,17 +289,6 @@ class ChampionPickerGUI(tk.Tk):
 
         self.check_filled_roles()
         self.update_overall_win_rates()
-
-    def get_banned_champions(self):
-        """
-        Return a list of champion names currently typed into the ban boxes.
-        """
-        banned = []
-        for ban_entry in self.ban_champ_boxes:
-            nm = ban_entry.get_text().strip()
-            if nm:
-                banned.append(nm)
-        return banned
 
     def _build_ui(self):
         bigger_font = ("Helvetica", 14)
@@ -452,26 +433,6 @@ class ChampionPickerGUI(tk.Tk):
             row=0, column=2, rowspan=len(self.enemy_champ_boxes),
             sticky="nw", padx=(10, 0)
         )
-
-        # ── BANNED PICKS FRAME (optional) ───────────────────────────────────────────────
-        ban_frame = ttk.LabelFrame(self, text="Banned Champions")
-        # If you want it visible by default, uncomment:
-        # ban_frame.grid(row=…, column=…)
-
-        self.ban_champ_boxes = []
-        for i in range(10):
-            lbl = ttk.Label(ban_frame, text=f"Ban #{i+1}:", font=bigger_font)
-            lbl.grid(row=i, column=0, sticky="w")
-
-            ban_entry = AutocompleteEntryPopup(
-                ban_frame,
-                suggestion_list=self.champion_list,
-                width=12,
-                font=bigger_font,
-                callback=self.combined_callback
-            )
-            ban_entry.grid(row=i, column=1, padx=5, pady=5, sticky="w")
-            self.ban_champ_boxes.append(ban_entry)
 
         # ── SUGGESTED PICKS (“Results”) ───────────────────────────────────────────────
         pick_frame = ttk.LabelFrame(self, text="Suggested Picks")
