@@ -153,14 +153,14 @@ class ChampionPickerGUI(tk.Tk):
                 pady=5,
                 sticky="nw"
             )
-    def toggle_advanced_settings(self):
-        """
-        Show or hide the advanced settings frame based on self.advanced_visible.
-        """
-        if self.advanced_visible.get():
-            self.advanced_frame.grid()
-        else:
-            self.advanced_frame.grid_remove()
+    # def toggle_advanced_settings(self):
+    #     """
+    #     Show or hide the advanced settings frame based on self.advanced_visible.
+    #     """
+    #     if self.advanced_visible.get():
+    #         self.advanced_frame.grid()
+    #     else:
+    #         self.advanced_frame.grid_remove()
 
     def recalculate_matchups(self):
         try:
@@ -273,17 +273,17 @@ class ChampionPickerGUI(tk.Tk):
         )
         auto_hide_chk.grid(row=0, column=0, padx=10, pady=(10, 0), sticky="w")
 
-        # ── ADVANCED SETTINGS TOGGLE ────────────────────────────────────────────────────
-        self.advanced_visible = tk.BooleanVar(value=False)
-        toggle_btn = ttk.Checkbutton(
-            self,
-            text="Show Advanced Settings",
-            variable=self.advanced_visible,
-            command=self.toggle_advanced_settings,
-            onvalue=True,
-            offvalue=False
-        )
-        toggle_btn.grid(row=1, column=0, padx=10, pady=(5, 10), sticky="w")
+        # # ── ADVANCED SETTINGS TOGGLE ────────────────────────────────────────────────────
+        # self.advanced_visible = tk.BooleanVar(value=False)
+        # toggle_btn = ttk.Checkbutton(
+        #     self,
+        #     text="Show Advanced Settings",
+        #     variable=self.advanced_visible,
+        #     command=self.toggle_advanced_settings,
+        #     onvalue=True,
+        #     offvalue=False
+        # )
+        # toggle_btn.grid(row=1, column=0, padx=10, pady=(5, 10), sticky="w")
 
         # Advanced settings frame (initially hidden)
         self.advanced_frame = ttk.LabelFrame(self, text="Advanced Settings")
