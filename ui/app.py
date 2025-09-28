@@ -1,17 +1,16 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk
 import os
 from PIL import Image, ImageTk 
 
-from core.recommend import get_champion_scores_for_role
-from core.role_guess import guess_enemy_roles
-from core.enums import ROLES, STRATEGIES
+from core.enums import ROLES, Role
 from core.repo import PriorsRepository, MatchupRepository
 
 from ui.autocompleteEntryPopup import AutocompleteEntryPopup
-from ui.controller import WinRateController
-from ui.view_adapter import TkWinRateViewAdapter
+from ui.components.win_rate import WinRateController, TkWinRateViewAdapter
+from ui.components.recommend import RecommendController, RecommendView
 from core.services import WinRateService, WinRatePresenter
+from core.services import RecommendService
 
 
 ###############################################################################
@@ -33,11 +32,6 @@ class ChampionPickerGUI(tk.Tk):
         # Store and index matchups DataFrame
         self.matchup_repo = matchup_repo
         self.priors_repo = priors_repo
-
-        self.df_matchups = self.matchup_repo.get_df()
-
-        
-
 
         # Champion list (for autocomplete + icons)
         self.champion_list: list[str] = self.priors_repo.champions()
@@ -70,6 +64,19 @@ class ChampionPickerGUI(tk.Tk):
             TkWinRateViewAdapter(self.ally_champs, self.enemy_champ_boxes, self.overall_win_rate_label),
             WinRateService(self.priors_repo, self.matchup_repo),
             WinRatePresenter()
+        )
+
+        self.recommend_controller = RecommendController(
+            RecommendService(
+                self.matchup_repo,
+                self.priors_repo,
+                self.champion_list,
+            ),
+            RecommendView(
+                self.ally_champs, 
+                self.enemy_champ_boxes,
+                self.enemy_guess_label
+                )
         )
 
     def combined_callback(self):
@@ -144,24 +151,6 @@ class ChampionPickerGUI(tk.Tk):
                 pady=5,
                 sticky="nw"
             )
-    def toggle_advanced_settings(self):
-        """
-        Show or hide the advanced settings frame based on self.advanced_visible.
-        """
-        if self.advanced_visible.get():
-            self.advanced_frame.grid()
-        else:
-            self.advanced_frame.grid_remove()
-
-    def recalculate_matchups(self):
-        try:
-            self.matchup_repo.recalculate_matchups(self.m_var.get())
-            # Refresh UI
-            self.update_overall_win_rates()
-            self.on_recommend()
-
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to recalculate matchups: {e}")
 
     def copy_role_list(self, role):
         """
@@ -180,67 +169,21 @@ class ChampionPickerGUI(tk.Tk):
         2) Build ally_team dict and guess enemy_team.
         3) For each role, compute top-5 picks, then place icon + W/Δ in a vertical list under that role’s frame.
         """
-        # ── Update log_odds in df_matchups ───────────────────────────────────
-        method = self.adjustment_method.get().lower()
-        
-        self.matchup_repo._create_column(method)
-
-        # ── Build ally_team dict ──────────────────────────────────────────────
-        ally_team = {}
-        for role, entry in self.ally_champs.items():
-            nm = entry.get_text().strip()
-            if nm:
-                ally_team[role] = nm
-
-        # ── Gather enemy champions and guess roles ────────────────────────────
-        enemy_champs = [e.get_text().strip() for e in self.enemy_champ_boxes if e.get_text().strip()]
-        enemy_team = guess_enemy_roles(enemy_champs, self.priors_repo)
-
-        # Display “Akshan → middle” etc.
-        guessed_text = ""
-        for role, champ in enemy_team.items():
-            guessed_text += f"{champ} → {role}\n"
-        self.enemy_guess_label.config(text=guessed_text)
-
-        chosen_metric = self.display_metric_var.get()
-        excluded_base = set(ally_team.values()) | set(enemy_team.values()) | set(self.get_banned_champions())
+        recommend_result = self.recommend_controller.on_recommend()
 
         # Ensure the Suggested Picks area is visible before drawing
         self.results_frame.grid()
         self.rearrange_result_icons()
 
-        # ── For each role, compute top-5 and build a vertical list ────────────
+        # ── For each (role, top-5) build a vertical list ────────────
         for role in self.roles_ally:
             # Clear out previous widgets under this role
             for widget in self.icon_frames[role]['icons']:
                 widget.destroy()
             self.icon_frames[role]['icons'].clear()
 
-            # Compute scores for this role
-            excluded_dynamic = set(excluded_base)
-            scores = get_champion_scores_for_role(
-                df_indexed=self.matchup_repo.indexed(),
-                role_to_fill=role,
-                ally_team=ally_team,
-                enemy_team=enemy_team,
-                pick_strategy=(
-                    "MinimaxAllRoles" if self.pick_strategy_var.get().startswith("Minimax")
-                    else "Maximize"
-                ),
-                champion_pool=self.champion_list,
-                excluded_champions=excluded_dynamic
-            )
-
-            # Sort by Delta or WinRate
-            if chosen_metric == "Delta":
-                scores.sort(key=lambda x: x[2], reverse=True)
-            else:
-                scores.sort(key=lambda x: x[1], reverse=True)
-
-            top_n = scores[:5]  # show top 5
-
             # Place each champion’s icon + W/Δ in a vertical stack
-            for idx, (champ, total_log_odds, total_delta) in enumerate(top_n):
+            for idx, (champ, total_log_odds, total_delta) in enumerate(recommend_result.ally_role_suggestions[Role(role)]):
                 photo = self.champion_icons.get(champ)
 
                 # … inside on_recommend(), for each (champ, total_log_odds, total_delta) …
@@ -272,9 +215,6 @@ class ChampionPickerGUI(tk.Tk):
 
                 self.icon_frames[role]['icons'].append(subframe)
 
-                if idx == 0:
-                    excluded_base.add(champ)
-
         # Re-apply auto-hide logic
         self.check_filled_roles()
 
@@ -289,8 +229,6 @@ class ChampionPickerGUI(tk.Tk):
             e.entry_var.set("")
         for e in self.enemy_champ_boxes:
             e.entry_var.set("")
-        for b in self.ban_champ_boxes:
-            b.entry_var.set("")
 
         for role in self.roles_ally:
             for widget in self.icon_frames[role]['icons']:
@@ -303,17 +241,6 @@ class ChampionPickerGUI(tk.Tk):
         self.check_filled_roles()
         self.update_overall_win_rates()
 
-    def get_banned_champions(self):
-        """
-        Return a list of champion names currently typed into the ban boxes.
-        """
-        banned = []
-        for ban_entry in self.ban_champ_boxes:
-            nm = ban_entry.get_text().strip()
-            if nm:
-                banned.append(nm)
-        return banned
-
     def _build_ui(self):
         bigger_font = ("Helvetica", 14)
 
@@ -325,80 +252,6 @@ class ChampionPickerGUI(tk.Tk):
             command=self.check_filled_roles
         )
         auto_hide_chk.grid(row=0, column=0, padx=10, pady=(10, 0), sticky="w")
-
-        # ── ADVANCED SETTINGS TOGGLE ────────────────────────────────────────────────────
-        self.advanced_visible = tk.BooleanVar(value=False)
-        toggle_btn = ttk.Checkbutton(
-            self,
-            text="Show Advanced Settings",
-            variable=self.advanced_visible,
-            command=self.toggle_advanced_settings,
-            onvalue=True,
-            offvalue=False
-        )
-        toggle_btn.grid(row=1, column=0, padx=10, pady=(5, 10), sticky="w")
-
-        # Advanced settings frame (initially hidden)
-        self.advanced_frame = ttk.LabelFrame(self, text="Advanced Settings")
-
-        # ── Pick Strategy ───────────────────────────────────────────────────────────
-        strategy_frame = ttk.LabelFrame(self.advanced_frame, text="Pick Strategy")
-        strategy_frame.grid(row=0, column=0, padx=10, pady=10, sticky="nw")
-        strategy_label = ttk.Label(strategy_frame, text="Strategy:", font=bigger_font)
-        strategy_label.grid(row=0, column=0, padx=5, pady=5, sticky="w")
-
-        strategy_dropdown = ttk.Combobox(
-            strategy_frame,
-            textvariable=self.pick_strategy_var,
-            values=STRATEGIES,
-            font=bigger_font,
-            state="readonly",
-            width=10
-        )
-        strategy_dropdown.grid(row=0, column=1, padx=5, pady=5, sticky="w")
-
-        # ── Display Metric ──────────────────────────────────────────────────────────
-        display_metric_frame = ttk.LabelFrame(self.advanced_frame, text="Display Metric")
-        display_metric_frame.grid(row=1, column=0, padx=10, pady=10, sticky="nw")
-        display_metric_label = ttk.Label(display_metric_frame, text="Sort By:", font=bigger_font)
-        display_metric_label.grid(row=0, column=0, padx=5, pady=5, sticky="w")
-
-        display_metric_dropdown = ttk.Combobox(
-            display_metric_frame,
-            textvariable=self.display_metric_var,
-            values=["Win Rate", "Delta"],
-            font=bigger_font,
-            state="readonly"
-        )
-        display_metric_dropdown.grid(row=0, column=1, padx=5, pady=5, sticky="w")
-
-        # ── Adjustment Method ───────────────────────────────────────────────────────
-        adjustment_frame = ttk.LabelFrame(self.advanced_frame, text="Adjustment Method")
-        adjustment_frame.grid(row=2, column=0, padx=10, pady=10, sticky="nw")
-        adjustment_label = ttk.Label(adjustment_frame, text="Adjustment:", font=bigger_font)
-        adjustment_label.grid(row=0, column=0, padx=5, pady=5, sticky="w")
-
-        adjustment_dropdown = ttk.Combobox(
-            adjustment_frame,
-            textvariable=self.adjustment_method,
-            values=["Bayesian", "ADVI", "Hierarchical"],
-            font=bigger_font,
-            state="readonly"
-        )
-        adjustment_dropdown.grid(row=0, column=1, padx=5, pady=5, sticky="w")
-
-        # ── Bayesian “m” Value ───────────────────────────────────────────────────────
-        m_frame = ttk.LabelFrame(self.advanced_frame, text="Bayesian Adjustment (m)")
-        m_frame.grid(row=3, column=0, padx=10, pady=10, sticky="nw")
-        m_label = ttk.Label(m_frame, text="Set m:", font=bigger_font)
-        m_label.grid(row=0, column=0, padx=5, pady=5, sticky="w")
-
-        self.m_var = tk.IntVar(value=0)
-        m_entry = ttk.Entry(m_frame, textvariable=self.m_var, width=10, font=bigger_font)
-        m_entry.grid(row=0, column=1, padx=5, pady=5, sticky="w")
-
-        m_button = ttk.Button(m_frame, text="Recalculate", command=self.recalculate_matchups)
-        m_button.grid(row=0, column=2, padx=5, pady=5, sticky="w")
 
         # ── TEAMS FRAME ───────────────────────────────────────────────────────────────
         teams_frame = ttk.Frame(self)
@@ -457,26 +310,6 @@ class ChampionPickerGUI(tk.Tk):
             row=0, column=2, rowspan=len(self.enemy_champ_boxes),
             sticky="nw", padx=(10, 0)
         )
-
-        # ── BANNED PICKS FRAME (optional) ───────────────────────────────────────────────
-        ban_frame = ttk.LabelFrame(self, text="Banned Champions")
-        # If you want it visible by default, uncomment:
-        # ban_frame.grid(row=…, column=…)
-
-        self.ban_champ_boxes = []
-        for i in range(10):
-            lbl = ttk.Label(ban_frame, text=f"Ban #{i+1}:", font=bigger_font)
-            lbl.grid(row=i, column=0, sticky="w")
-
-            ban_entry = AutocompleteEntryPopup(
-                ban_frame,
-                suggestion_list=self.champion_list,
-                width=12,
-                font=bigger_font,
-                callback=self.combined_callback
-            )
-            ban_entry.grid(row=i, column=1, padx=5, pady=5, sticky="w")
-            self.ban_champ_boxes.append(ban_entry)
 
         # ── SUGGESTED PICKS (“Results”) ───────────────────────────────────────────────
         pick_frame = ttk.LabelFrame(self, text="Suggested Picks")

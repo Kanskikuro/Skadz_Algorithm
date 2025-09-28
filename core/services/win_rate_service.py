@@ -3,6 +3,10 @@ from typing import Dict, List
 
 from core.repo import MatchupRepository, PriorsRepository
 
+"""
+Service for calculating the overall winrate of the two teams.
+"""
+
 @dataclass(frozen=True)
 class TeamInput:
     ally_by_role: Dict[str, str]
