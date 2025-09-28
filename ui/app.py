@@ -1,11 +1,9 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk
 import os
 from PIL import Image, ImageTk 
 
-from core.recommend import get_champion_scores_for_role
-from core.role_guess import guess_enemy_roles
-from core.enums import ROLES, STRATEGIES, Role
+from core.enums import ROLES, Role
 from core.repo import PriorsRepository, MatchupRepository
 
 from ui.autocompleteEntryPopup import AutocompleteEntryPopup
