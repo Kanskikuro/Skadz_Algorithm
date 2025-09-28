@@ -5,13 +5,14 @@ from PIL import Image, ImageTk
 
 from core.recommend import get_champion_scores_for_role
 from core.role_guess import guess_enemy_roles
-from core.enums import ROLES, STRATEGIES
+from core.enums import ROLES, STRATEGIES, Role
 from core.repo import PriorsRepository, MatchupRepository
 
 from ui.autocompleteEntryPopup import AutocompleteEntryPopup
 from ui.controllers import WinRateController
 from ui.view_adapter import TkWinRateViewAdapter
 from core.services import WinRateService, WinRatePresenter
+from core.services import RecommendService, TeamState
 
 
 ###############################################################################
@@ -175,10 +176,17 @@ class ChampionPickerGUI(tk.Tk):
         2) Build ally_team dict and guess enemy_team.
         3) For each role, compute top-5 picks, then place icon + W/Δ in a vertical list under that role’s frame.
         """
+        recommender = RecommendService(
+            self.matchup_repo, 
+            self.priors_repo,
+            self.champion_list
+            )
+
         # ── Update log_odds in df_matchups ───────────────────────────────────
         method = self.adjustment_method.get().lower()
         
-        self.matchup_repo._create_column(method)
+        # self.matchup_repo._create_column(method)
+        recommender.update_adjustments(method)
 
         # ── Build ally_team dict ──────────────────────────────────────────────
         ally_team = {}
@@ -189,15 +197,21 @@ class ChampionPickerGUI(tk.Tk):
 
         # ── Gather enemy champions and guess roles ────────────────────────────
         enemy_champs = [e.get_text().strip() for e in self.enemy_champ_boxes if e.get_text().strip()]
-        enemy_team = guess_enemy_roles(enemy_champs, self.priors_repo)
+        
+        recommend_result = recommender.recommend(
+            state=TeamState(
+                ally_team=ally_team,
+                enemy_champs=enemy_champs,
+                metric="Delta", ## Hard for now
+                pick_strategy="Maximize",
+            ))
 
         # Display “Akshan → middle” etc.
         guessed_text = ""
-        for role, champ in enemy_team.items():
+        for role, champ in recommend_result.enemy_team_role_guess.items():
             guessed_text += f"{champ} → {role}\n"
         self.enemy_guess_label.config(text=guessed_text)
 
-        chosen_metric = self.display_metric_var.get()
 
         # Ensure the Suggested Picks area is visible before drawing
         self.results_frame.grid()
@@ -210,29 +224,29 @@ class ChampionPickerGUI(tk.Tk):
                 widget.destroy()
             self.icon_frames[role]['icons'].clear()
 
-            # Compute scores for this role
-            scores = get_champion_scores_for_role(
-                df_indexed=self.matchup_repo.indexed(),
-                role_to_fill=role,
-                ally_team=ally_team,
-                enemy_team=enemy_team,
-                pick_strategy=(
-                    "MinimaxAllRoles" if self.pick_strategy_var.get().startswith("Minimax")
-                    else "Maximize"
-                ),
-                champion_pool=self.champion_list,
-            )
+            # # Compute scores for this role
+            # scores = get_champion_scores_for_role(
+            #     df_indexed=self.matchup_repo.indexed(),
+            #     role_to_fill=role,
+            #     ally_team=ally_team,
+            #     enemy_team=enemy_team,
+            #     pick_strategy=(
+            #         "MinimaxAllRoles" if self.pick_strategy_var.get().startswith("Minimax")
+            #         else "Maximize"
+            #     ),
+            #     champion_pool=self.champion_list,
+            # )
 
             # Sort by Delta or WinRate
-            if chosen_metric == "Delta":
-                scores.sort(key=lambda x: x[2], reverse=True)
-            else:
-                scores.sort(key=lambda x: x[1], reverse=True)
+            # if chosen_metric == "Delta":
+            #     scores.sort(key=lambda x: x[2], reverse=True)
+            # else:
+            #     scores.sort(key=lambda x: x[1], reverse=True)
 
-            top_n = scores[:5]  # show top 5
+            # top_n = scores[:5]  # show top 5
 
             # Place each champion’s icon + W/Δ in a vertical stack
-            for idx, (champ, total_log_odds, total_delta) in enumerate(top_n):
+            for idx, (champ, total_log_odds, total_delta) in enumerate(recommend_result.ally_role_suggestions[Role(role)]):
                 photo = self.champion_icons.get(champ)
 
                 # … inside on_recommend(), for each (champ, total_log_odds, total_delta) …
