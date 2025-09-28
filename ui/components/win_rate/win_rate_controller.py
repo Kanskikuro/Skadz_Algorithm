@@ -1,4 +1,4 @@
-from ui.view_adapters import TkWinRateViewAdapter
+from .view_adapter import TkWinRateViewAdapter
 from core.services import WinRateService, WinRatePresenter
 
 
