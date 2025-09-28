@@ -1,4 +1,4 @@
-from ui.view_adapter import TkWinRateViewAdapter
+from ui.view_adapters import TkWinRateViewAdapter
 from core.services import WinRateService, WinRatePresenter
 
 
@@ -13,5 +13,3 @@ class WinRateController:
         estimate = self.service.estimate(team)
         text = self.presenter.to_label_text(estimate)
         self.view.render_win_rates(text)
-
-        pass

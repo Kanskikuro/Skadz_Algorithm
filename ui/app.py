@@ -10,7 +10,7 @@ from core.repo import PriorsRepository, MatchupRepository
 
 from ui.autocompleteEntryPopup import AutocompleteEntryPopup
 from ui.controllers import WinRateController
-from ui.view_adapter import TkWinRateViewAdapter
+from ui.view_adapters import TkWinRateViewAdapter
 from core.services import WinRateService, WinRatePresenter
 from core.services import RecommendService, TeamState
 
