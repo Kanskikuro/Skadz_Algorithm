@@ -34,11 +34,6 @@ class ChampionPickerGUI(tk.Tk):
         self.matchup_repo = matchup_repo
         self.priors_repo = priors_repo
 
-        self.df_matchups = self.matchup_repo.get_df()
-
-        
-
-
         # Champion list (for autocomplete + icons)
         self.champion_list: list[str] = self.priors_repo.champions()
 
