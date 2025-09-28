@@ -27,7 +27,7 @@ class RecommendService:
     def update_adjustments(self, method: str = "Bayesian"):
         self._matchup_repo._create_column(method)
 
-    def recommend(self, state: TeamState, chosen_metric: str = "Delta"):
+    def recommend(self, state: TeamState):
 
         # Guess what roles the enemy champions are
         enemy_team_role_guess = guess_enemy_roles(state.enemy_champs, self._priors_repo)
@@ -46,7 +46,7 @@ class RecommendService:
                 )
 
                         # Sort by Delta or WinRate
-            if chosen_metric == "Delta":
+            if state.metric == "Delta":
                 scores.sort(key=lambda x: x[2], reverse=True)
             else:
                 scores.sort(key=lambda x: x[1], reverse=True)

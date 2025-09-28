@@ -10,6 +10,7 @@ from core.repo import PriorsRepository, MatchupRepository
 
 from ui.autocompleteEntryPopup import AutocompleteEntryPopup
 from ui.components.win_rate import WinRateController, TkWinRateViewAdapter
+from ui.components.recommend import RecommendController, RecommendView
 from core.services import WinRateService, WinRatePresenter
 from core.services import RecommendService, TeamState
 
@@ -65,6 +66,18 @@ class ChampionPickerGUI(tk.Tk):
             TkWinRateViewAdapter(self.ally_champs, self.enemy_champ_boxes, self.overall_win_rate_label),
             WinRateService(self.priors_repo, self.matchup_repo),
             WinRatePresenter()
+        )
+
+        self.recommend_controller = RecommendController(
+            RecommendService(
+                self.matchup_repo,
+                self.priors_repo,
+                self.champion_list,
+            ),
+            RecommendView(
+                self.ally_champs, 
+                self.enemy_champ_boxes
+                )
         )
 
     def combined_callback(self):
@@ -175,35 +188,36 @@ class ChampionPickerGUI(tk.Tk):
         2) Build ally_team dict and guess enemy_team.
         3) For each role, compute top-5 picks, then place icon + W/Δ in a vertical list under that role’s frame.
         """
-        recommender = RecommendService(
-            self.matchup_repo, 
-            self.priors_repo,
-            self.champion_list
-            )
+        # recommender = RecommendService(
+        #     self.matchup_repo, 
+        #     self.priors_repo,
+        #     self.champion_list
+        #     )
+        recommend_result = self.recommend_controller.on_recommend()
 
-        # ── Update log_odds in df_matchups ───────────────────────────────────
-        method = self.adjustment_method.get().lower()
+        # # ── Update log_odds in df_matchups ───────────────────────────────────
+        # method = self.adjustment_method.get().lower()
         
-        # self.matchup_repo._create_column(method)
-        recommender.update_adjustments(method)
+        # # self.matchup_repo._create_column(method)
+        # recommender.update_adjustments(method)
 
-        # ── Build ally_team dict ──────────────────────────────────────────────
-        ally_team = {}
-        for role, entry in self.ally_champs.items():
-            nm = entry.get_text().strip()
-            if nm:
-                ally_team[role] = nm
+        # # ── Build ally_team dict ──────────────────────────────────────────────
+        # ally_team = {}
+        # for role, entry in self.ally_champs.items():
+        #     nm = entry.get_text().strip()
+        #     if nm:
+        #         ally_team[role] = nm
 
-        # ── Gather enemy champions and guess roles ────────────────────────────
-        enemy_champs = [e.get_text().strip() for e in self.enemy_champ_boxes if e.get_text().strip()]
+        # # ── Gather enemy champions and guess roles ────────────────────────────
+        # enemy_champs = [e.get_text().strip() for e in self.enemy_champ_boxes if e.get_text().strip()]
         
-        recommend_result = recommender.recommend(
-            state=TeamState(
-                ally_team=ally_team,
-                enemy_champs=enemy_champs,
-                metric="Delta", ## Hard for now
-                pick_strategy="Maximize",
-            ))
+        # recommend_result = recommender.recommend(
+        #     state=TeamState(
+        #         ally_team=ally_team,
+        #         enemy_champs=enemy_champs,
+        #         metric="Delta", ## Hard for now
+        #         pick_strategy="Maximize",
+        #     ))
 
         # Display “Akshan → middle” etc.
         guessed_text = ""
