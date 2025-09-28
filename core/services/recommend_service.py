@@ -33,6 +33,7 @@ class RecommendService:
         enemy_team_role_guess = guess_enemy_roles(state.enemy_champs, self._priors_repo)
 
 
+        # Recommend top 5 picks for each ally role
         ally_pick_suggestions: dict[Role, list[tuple[str, float, float]]] = {}
         for role in ROLES:
             scores = get_champion_scores_for_role(

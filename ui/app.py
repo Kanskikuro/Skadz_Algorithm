@@ -224,27 +224,6 @@ class ChampionPickerGUI(tk.Tk):
                 widget.destroy()
             self.icon_frames[role]['icons'].clear()
 
-            # # Compute scores for this role
-            # scores = get_champion_scores_for_role(
-            #     df_indexed=self.matchup_repo.indexed(),
-            #     role_to_fill=role,
-            #     ally_team=ally_team,
-            #     enemy_team=enemy_team,
-            #     pick_strategy=(
-            #         "MinimaxAllRoles" if self.pick_strategy_var.get().startswith("Minimax")
-            #         else "Maximize"
-            #     ),
-            #     champion_pool=self.champion_list,
-            # )
-
-            # Sort by Delta or WinRate
-            # if chosen_metric == "Delta":
-            #     scores.sort(key=lambda x: x[2], reverse=True)
-            # else:
-            #     scores.sort(key=lambda x: x[1], reverse=True)
-
-            # top_n = scores[:5]  # show top 5
-
             # Place each champion’s icon + W/Δ in a vertical stack
             for idx, (champ, total_log_odds, total_delta) in enumerate(recommend_result.ally_role_suggestions[Role(role)]):
                 photo = self.champion_icons.get(champ)
