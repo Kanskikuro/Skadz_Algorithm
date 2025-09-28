@@ -153,24 +153,6 @@ class ChampionPickerGUI(tk.Tk):
                 pady=5,
                 sticky="nw"
             )
-    # def toggle_advanced_settings(self):
-    #     """
-    #     Show or hide the advanced settings frame based on self.advanced_visible.
-    #     """
-    #     if self.advanced_visible.get():
-    #         self.advanced_frame.grid()
-    #     else:
-    #         self.advanced_frame.grid_remove()
-
-    def recalculate_matchups(self):
-        try:
-            self.matchup_repo.recalculate_matchups(self.m_var.get())
-            # Refresh UI
-            self.update_overall_win_rates()
-            self.on_recommend()
-
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to recalculate matchups: {e}")
 
     def copy_role_list(self, role):
         """
@@ -272,80 +254,6 @@ class ChampionPickerGUI(tk.Tk):
             command=self.check_filled_roles
         )
         auto_hide_chk.grid(row=0, column=0, padx=10, pady=(10, 0), sticky="w")
-
-        # # ── ADVANCED SETTINGS TOGGLE ────────────────────────────────────────────────────
-        # self.advanced_visible = tk.BooleanVar(value=False)
-        # toggle_btn = ttk.Checkbutton(
-        #     self,
-        #     text="Show Advanced Settings",
-        #     variable=self.advanced_visible,
-        #     command=self.toggle_advanced_settings,
-        #     onvalue=True,
-        #     offvalue=False
-        # )
-        # toggle_btn.grid(row=1, column=0, padx=10, pady=(5, 10), sticky="w")
-
-        # Advanced settings frame (initially hidden)
-        self.advanced_frame = ttk.LabelFrame(self, text="Advanced Settings")
-
-        # ── Pick Strategy ───────────────────────────────────────────────────────────
-        strategy_frame = ttk.LabelFrame(self.advanced_frame, text="Pick Strategy")
-        strategy_frame.grid(row=0, column=0, padx=10, pady=10, sticky="nw")
-        strategy_label = ttk.Label(strategy_frame, text="Strategy:", font=bigger_font)
-        strategy_label.grid(row=0, column=0, padx=5, pady=5, sticky="w")
-
-        strategy_dropdown = ttk.Combobox(
-            strategy_frame,
-            textvariable=self.pick_strategy_var,
-            values=STRATEGIES,
-            font=bigger_font,
-            state="readonly",
-            width=10
-        )
-        strategy_dropdown.grid(row=0, column=1, padx=5, pady=5, sticky="w")
-
-        # ── Display Metric ──────────────────────────────────────────────────────────
-        display_metric_frame = ttk.LabelFrame(self.advanced_frame, text="Display Metric")
-        display_metric_frame.grid(row=1, column=0, padx=10, pady=10, sticky="nw")
-        display_metric_label = ttk.Label(display_metric_frame, text="Sort By:", font=bigger_font)
-        display_metric_label.grid(row=0, column=0, padx=5, pady=5, sticky="w")
-
-        display_metric_dropdown = ttk.Combobox(
-            display_metric_frame,
-            textvariable=self.display_metric_var,
-            values=["Win Rate", "Delta"],
-            font=bigger_font,
-            state="readonly"
-        )
-        display_metric_dropdown.grid(row=0, column=1, padx=5, pady=5, sticky="w")
-
-        # ── Adjustment Method ───────────────────────────────────────────────────────
-        adjustment_frame = ttk.LabelFrame(self.advanced_frame, text="Adjustment Method")
-        adjustment_frame.grid(row=2, column=0, padx=10, pady=10, sticky="nw")
-        adjustment_label = ttk.Label(adjustment_frame, text="Adjustment:", font=bigger_font)
-        adjustment_label.grid(row=0, column=0, padx=5, pady=5, sticky="w")
-
-        adjustment_dropdown = ttk.Combobox(
-            adjustment_frame,
-            textvariable=self.adjustment_method,
-            values=["Bayesian", "ADVI", "Hierarchical"],
-            font=bigger_font,
-            state="readonly"
-        )
-        adjustment_dropdown.grid(row=0, column=1, padx=5, pady=5, sticky="w")
-
-        # ── Bayesian “m” Value ───────────────────────────────────────────────────────
-        m_frame = ttk.LabelFrame(self.advanced_frame, text="Bayesian Adjustment (m)")
-        m_frame.grid(row=3, column=0, padx=10, pady=10, sticky="nw")
-        m_label = ttk.Label(m_frame, text="Set m:", font=bigger_font)
-        m_label.grid(row=0, column=0, padx=5, pady=5, sticky="w")
-
-        self.m_var = tk.IntVar(value=0)
-        m_entry = ttk.Entry(m_frame, textvariable=self.m_var, width=10, font=bigger_font)
-        m_entry.grid(row=0, column=1, padx=5, pady=5, sticky="w")
-
-        m_button = ttk.Button(m_frame, text="Recalculate", command=self.recalculate_matchups)
-        m_button.grid(row=0, column=2, padx=5, pady=5, sticky="w")
 
         # ── TEAMS FRAME ───────────────────────────────────────────────────────────────
         teams_frame = ttk.Frame(self)
