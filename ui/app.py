@@ -12,7 +12,7 @@ from ui.autocompleteEntryPopup import AutocompleteEntryPopup
 from ui.components.win_rate import WinRateController, TkWinRateViewAdapter
 from ui.components.recommend import RecommendController, RecommendView
 from core.services import WinRateService, WinRatePresenter
-from core.services import RecommendService, TeamState
+from core.services import RecommendService
 
 
 ###############################################################################
@@ -195,7 +195,7 @@ class ChampionPickerGUI(tk.Tk):
         self.results_frame.grid()
         self.rearrange_result_icons()
 
-        # ── For each role, compute top-5 and build a vertical list ────────────
+        # ── For each (role, top-5) build a vertical list ────────────
         for role in self.roles_ally:
             # Clear out previous widgets under this role
             for widget in self.icon_frames[role]['icons']:
