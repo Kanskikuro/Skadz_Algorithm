@@ -375,25 +375,25 @@ def main(model_type='hierarchical', m=200):
         data = data.merge(existing_data[merge_cols], on=unique_key_columns, how='left')
 
     # Compute model-specific results
-    if model_type == 'bayesian':
-        # Bayesian shrink for win_rate
-        data = calculate_bayesian_adjusted_win_rate(data.copy(), global_win_rate=50.0, m=m)
-        data['log_odds_bayes'] = data['win_rate_shrunk_bayes'].apply(win_rate_to_log_odds)
+    #if model_type == 'bayesian':
+    # Bayesian shrink for win_rate
+    data = calculate_bayesian_adjusted_win_rate(data.copy(), global_win_rate=50.0, m=m)
+    data['log_odds_bayes'] = data['win_rate_shrunk_bayes'].apply(win_rate_to_log_odds)
 
-        # Bayesian shrink for delta, if present
-        if 'delta' in data.columns:
-            data = calculate_bayesian_adjusted_delta(data, global_delta=0.0, m=m)
+    # Bayesian shrink for delta, if present
+    if 'delta' in data.columns:
+        data = calculate_bayesian_adjusted_delta(data, global_delta=0.0, m=m)
 
-    elif model_type == 'advi':
-        data = run_advi(data.copy())
-        data['log_odds_advi'] = data['win_rate_shrunk_advi'].apply(win_rate_to_log_odds)
+    # elif model_type == 'advi':
+    #     data = run_advi(data.copy())
+    #     data['log_odds_advi'] = data['win_rate_shrunk_advi'].apply(win_rate_to_log_odds)
 
-    elif model_type == 'hierarchical':
-        data = run_hierarchical(data.copy())
-        # log_odds_hierarchical is computed inside run_hierarchical
+    # elif model_type == 'hierarchical':
+    #     data = run_hierarchical(data.copy())
+    #     # log_odds_hierarchical is computed inside run_hierarchical
 
     data.to_csv(output_file, index=False)
     print(f"Results saved to {output_file}")
 
 if __name__ == "__main__":
-    main(model_type='bayesian')
+    main()
