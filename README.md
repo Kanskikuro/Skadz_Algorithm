@@ -2,7 +2,9 @@
 A program that suggests champion picks for league of legends. Skadz, also known as Olav, initiated and layed the foundation for this program, hence naming the project after him as an homage.
 
 ## How to run
-Pip install the requirement.txt.  
+uv install
+
+
 Run the scipts.py in script
 
 ## How does the algorithm work
