@@ -252,7 +252,6 @@ def get_champion_scores_for_role(
     # 5) Build the final list of three-tuples
     ###########################################################################
     result = [
-        (champ, vals[0], vals[1]) 
-        for champ, vals in champion_scores.items()
+        (champ, vals[0], vals[1]) for champ, vals in champion_scores.items()
     ]
     return result
