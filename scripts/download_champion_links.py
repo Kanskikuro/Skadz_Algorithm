@@ -1,78 +1,145 @@
-import sqlite3
-from playwright.sync_api import sync_playwright
-import time
-from config import LANES, BASE_URL, DB_PATH
+import re
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
-def fetch_links_for_champion(champion_name: str):
-    """Fetch all build links for a single champion."""
-    all_links = set()
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+import requests
 
-        for lane in LANES:
-            url = BASE_URL.format(champion_name.lower(), lane)
-            page.goto(url, timeout=60000)
-
-            # Scroll to load all builds
-            for _ in range(40):
-                page.keyboard.press("PageDown")
-                time.sleep(0.2)
-
-            # Collect all build links
-            a_tags = page.query_selector_all("a[href*='build']")
-            for a in a_tags:
-                href = a.get_attribute("href")
-                if href and "lolalytics.com/lol/" in href:
-                    all_links.add(href)
-
-        browser.close()
-    return list(all_links)
+from scripts.config import (
+    BASE_URL,
+    CHAMPION_LINKS_FILE,
+    CHAMP_SUMMARY_URL,
+    LANES,
+)
 
 
-def save_links_to_db(champion_id: int, links: list, db_path="champions.db"):
-    conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
+def lolalytics_slug(name: str) -> str:
+    """
+    Lolalytics URL slug.
 
-    # create table if not exists
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS champion_links (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            champion_id INTEGER NOT NULL,
-            link TEXT NOT NULL,
-            FOREIGN KEY (champion_id) REFERENCES champions(id)
-        )
-    """)
-
-    # idea: check if there are 5 links for each champion ?
-    for link in links:
-        cur.execute(
-            "INSERT INTO champion_links (champion_id, link) VALUES (?, ?)",
-            (champion_id, link)
-        )
-
-    conn.commit()
-    conn.close()
+    Examples:
+    "Aurelion Sol" -> "aurelionsol"
+    "Kai'Sa" -> "kaisa"
+    "Dr. Mundo" -> "drmundo"
+    "Nunu & Willump" -> "nunuwillump"
+    """
+    return re.sub(r"[^a-z0-9]", "", name.lower())
 
 
-def main():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
+def load_champions_from_communitydragon() -> list[str]:
+    response = requests.get(CHAMP_SUMMARY_URL, timeout=15)
+    response.raise_for_status()
 
-    # fetch all champions from DB
-    cur.execute("SELECT id, name FROM champions")
-    champions = cur.fetchall()
-    conn.close()
+    data = response.json()
+    champions: list[str] = []
 
-    print(f"Found {len(champions)} champions in DB")
+    for champ in data:
+        name = str(champ.get("name", "")).strip()
 
-    for champ_id, champ_name in champions:
-        print(f"Fetching links for {champ_name}...")
-        links = fetch_links_for_champion(champ_name)
-        print(f" → Found {len(links)} links")
-        save_links_to_db(champ_id, links)
+        if not name:
+            continue
 
-    print("Done!")
+        if "Doom Bot" in name:
+            continue
+
+        champions.append(name)
+
+    return sorted(set(champions), key=lolalytics_slug)
+
+
+def make_lane_url(champion_name: str, lane: str) -> str:
+    return BASE_URL.format(champ_name=lolalytics_slug(champion_name), lane=lane)
+
+
+def load_existing_links(path: str | Path = CHAMPION_LINKS_FILE) -> set[str]:
+    path = Path(path)
+
+    if not path.exists():
+        return set()
+
+    with path.open("r", encoding="utf-8") as file:
+        return {line.strip() for line in file if line.strip()}
+
+def is_direct_lane_build_url(url: str) -> bool:
+    """
+    Accept:
+    https://lolalytics.com/lol/aatrox/build/?lane=top
+    https://lolalytics.com/lol/aatrox/build/?lane=top&patch=30
+
+    Reject:
+    https://lolalytics.com/lol/aatrox/vs/ahri/build/?lane=top
+    https://lolalytics.com/lol/aatrox/build/?lane=top&item=...
+    https://lolalytics.com/lol/aatrox/build/?lane=top&keystone=...
+    """
+    parsed = urlparse(url)
+
+    if parsed.netloc != "lolalytics.com":
+        return False
+
+    if "/vs/" in parsed.path:
+        return False
+
+    parts = parsed.path.strip("/").split("/")
+    if len(parts) != 3:
+        return False
+
+    if parts[0] != "lol" or parts[2] != "build":
+        return False
+
+    query = parse_qs(parsed.query)
+
+    allowed_keys = {"lane", "patch"}
+    if not set(query.keys()).issubset(allowed_keys):
+        return False
+
+    lane_values = query.get("lane")
+    if not lane_values:
+        return False
+
+    if lane_values[0] not in LANES:
+        return False
+
+    patch_values = query.get("patch")
+    if patch_values and patch_values[0] != "30":
+        return False
+
+    return True
+
+def save_links(links: set[str], path: str | Path = CHAMPION_LINKS_FILE) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    clean_links = sorted(link for link in links if is_direct_lane_build_url(link))
+
+    with path.open("w", encoding="utf-8", newline="") as file:
+        for link in clean_links:
+            file.write(link + "\n")
+
+    print(f"Saved {len(clean_links)} clean links to {path}")
+
+
+def main() -> None:
+    champions = load_champions_from_communitydragon()
+    existing_links = load_existing_links()
+
+    expected_links: set[str] = {
+        make_lane_url(champion, lane)
+        for champion in champions
+        for lane in LANES
+    }
+
+    missing_links = expected_links - existing_links
+    final_links = existing_links.union(missing_links)
+
+    print(f"Champions from CommunityDragon: {len(champions)}")
+    print(f"Expected champion/lane links: {len(expected_links)}")
+    print(f"Existing links: {len(existing_links)}")
+    print(f"Missing links added: {len(missing_links)}")
+
+    for link in sorted(missing_links):
+        print(f"Adding missing link: {link}")
+
+    save_links(final_links)
+    print("Done.")
 
 
 if __name__ == "__main__":
