@@ -1,6 +1,5 @@
 import csv
 import logging
-import os
 import random
 import subprocess
 import threading
@@ -20,8 +19,16 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 from scripts.config import CHAMPION_LINKS_FILE, MATCHUPS_FILE
 
-NUM_THREADS = 5
+
+# Safer than 5. Still faster than the old script because each worker reuses its browser.
+NUM_THREADS = 3
 QUEUE_TIMEOUT = 30
+PAGE_LOAD_TIMEOUT = 60
+WAIT_TIMEOUT = 20
+
+# Randomized delays reduce the rigid bot-like timing pattern.
+TAB_CLICK_DELAY_RANGE = (0.4, 0.9)
+PAGE_DELAY_RANGE = (1.5, 3.5)
 
 progress_bar = None
 progress_lock = threading.Lock()
@@ -43,6 +50,17 @@ USER_AGENTS = [
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/116.0.0.0 Safari/537.36"
     ),
+]
+
+FIELDNAMES = [
+    "champ1",
+    "role1",
+    "type",
+    "champ2",
+    "role2",
+    "win_rate",
+    "delta",
+    "sample_size",
 ]
 
 logging.basicConfig(
@@ -70,31 +88,24 @@ def load_links(path: str | Path = CHAMPION_LINKS_FILE) -> list[str]:
     return sorted(set(links))
 
 
-def save_to_csv(data: dict, path: str | Path = MATCHUPS_FILE) -> None:
+def save_many_to_csv(rows: list[dict], path: str | Path = MATCHUPS_FILE) -> None:
+    """Write all rows from one champion page in one locked file operation."""
+    if not rows:
+        return
+
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-
-    fieldnames = [
-        "champ1",
-        "role1",
-        "type",
-        "champ2",
-        "role2",
-        "win_rate",
-        "delta",
-        "sample_size",
-    ]
 
     with csv_lock:
         file_exists = path.exists()
 
         with path.open("a", newline="", encoding="utf-8") as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer = csv.DictWriter(csvfile, fieldnames=FIELDNAMES)
 
             if not file_exists:
                 writer.writeheader()
 
-            writer.writerow(data)
+            writer.writerows(rows)
 
 
 def create_driver() -> webdriver.Chrome:
@@ -114,7 +125,10 @@ def create_driver() -> webdriver.Chrome:
     options.add_argument(f"user-agent={random.choice(USER_AGENTS)}")
 
     service = Service(ChromeDriverManager().install(), log_output=subprocess.DEVNULL)
-    return webdriver.Chrome(service=service, options=options)
+    driver = webdriver.Chrome(service=service, options=options)
+    driver.set_page_load_timeout(PAGE_LOAD_TIMEOUT)
+
+    return driver
 
 
 def parse_float_text(text: str) -> float:
@@ -135,7 +149,9 @@ def parse_int_text(text: str) -> int:
 def get_champ1_and_role1(wait: WebDriverWait) -> tuple[str, str]:
     try:
         h1_element = wait.until(
-            EC.presence_of_element_located((By.XPATH, "//h1[contains(@class, 'font-bold')]"))
+            EC.presence_of_element_located(
+                (By.XPATH, "//h1[contains(@class, 'font-bold')]")
+            )
         )
         h1_text = h1_element.text.strip()
 
@@ -161,14 +177,16 @@ def extract_data_with_selenium(
     view_type: str,
     champ1: str,
     role1: str,
-) -> None:
+) -> list[dict]:
+    rows: list[dict] = []
+
     if view_type.lower() == "counter":
         row_indices = range(2, 7)
     elif view_type.lower() == "synergy":
         row_indices = range(2, 6)
     else:
         logger.error("Unsupported view_type: %s", view_type)
-        return
+        return rows
 
     for i in row_indices:
         row_xpath = f"/html/body/main/div[6]/div[1]/div[{i}]"
@@ -203,24 +221,26 @@ def extract_data_with_selenium(
                 if not champ2:
                     continue
 
-                data_to_save = {
-                    "champ1": champ1,
-                    "role1": role1,
-                    "type": view_type,
-                    "champ2": champ2,
-                    "role2": role2,
-                    "win_rate": parse_float_text(win_rate_text),
-                    "delta": parse_float_text(delta_text),
-                    "sample_size": parse_int_text(sample_text),
-                }
-
-                save_to_csv(data_to_save)
+                rows.append(
+                    {
+                        "champ1": champ1,
+                        "role1": role1,
+                        "type": view_type,
+                        "champ2": champ2,
+                        "role2": role2,
+                        "win_rate": parse_float_text(win_rate_text),
+                        "delta": parse_float_text(delta_text),
+                        "sample_size": parse_int_text(sample_text),
+                    }
+                )
 
             except StaleElementReferenceException:
                 break
             except Exception as error:
                 logger.debug("Failed to extract champion section: %s", error)
                 continue
+
+    return rows
 
 
 def click_and_extract(
@@ -230,7 +250,7 @@ def click_and_extract(
     view_type: str,
     champ1: str,
     role1: str,
-) -> None:
+) -> list[dict]:
     button = wait.until(
         EC.element_to_be_clickable((By.XPATH, f"//div[@data-type='{data_type}']"))
     )
@@ -250,26 +270,35 @@ def click_and_extract(
 
     wait.until(
         EC.presence_of_all_elements_located(
-            (By.XPATH, "//div[contains(@class, 'cursor-grab')]/div[contains(@class, 'flex')]/div")
+            (
+                By.XPATH,
+                "//div[contains(@class, 'cursor-grab')]/div[contains(@class, 'flex')]/div",
+            )
         )
     )
 
-    time.sleep(1)
-    extract_data_with_selenium(driver, wait, view_type, champ1, role1)
+    # Safer than a fixed 0.25s delay. Random timing is less rigid and still faster than 1s.
+    time.sleep(random.uniform(*TAB_CLICK_DELAY_RANGE))
+
+    return extract_data_with_selenium(driver, wait, view_type, champ1, role1)
 
 
-def process_champion(champion_link: str) -> None:
-    driver = create_driver()
-    wait = WebDriverWait(driver, 20)
+def process_champion(
+    champion_link: str,
+    driver: webdriver.Chrome,
+    wait: WebDriverWait,
+) -> None:
+    rows: list[dict] = []
 
     try:
         logger.info("Processing %s", champion_link)
 
-        driver.set_page_load_timeout(60)
         driver.get(champion_link)
 
         wait.until(
-            EC.presence_of_element_located((By.XPATH, "//h1[contains(@class, 'font-bold')]"))
+            EC.presence_of_element_located(
+                (By.XPATH, "//h1[contains(@class, 'font-bold')]")
+            )
         )
 
         champ1, role1 = get_champ1_and_role1(wait)
@@ -278,30 +307,49 @@ def process_champion(champion_link: str) -> None:
             logger.warning("Skipping page with unknown champ/role: %s", champion_link)
             return
 
-        click_and_extract(driver, wait, "strong_counter", "Counter", champ1, role1)
-        click_and_extract(driver, wait, "weak_counter", "Counter", champ1, role1)
-        click_and_extract(driver, wait, "good_synergy", "Synergy", champ1, role1)
-        click_and_extract(driver, wait, "bad_synergy", "Synergy", champ1, role1)
+        rows.extend(
+            click_and_extract(driver, wait, "strong_counter", "Counter", champ1, role1)
+        )
+        rows.extend(
+            click_and_extract(driver, wait, "weak_counter", "Counter", champ1, role1)
+        )
+        rows.extend(
+            click_and_extract(driver, wait, "good_synergy", "Synergy", champ1, role1)
+        )
+        rows.extend(
+            click_and_extract(driver, wait, "bad_synergy", "Synergy", champ1, role1)
+        )
 
-        time.sleep(random.uniform(1, 3))
+        save_many_to_csv(rows)
+        logger.info("Saved %s rows for %s %s", len(rows), champ1, role1)
+
+        # Delay between champion/lane pages. This matters more for bot-ban risk than tab delay.
+        time.sleep(random.uniform(*PAGE_DELAY_RANGE))
 
     except TimeoutException:
         logger.error("Timeout processing %s", champion_link)
     except Exception as error:
         logger.error("Error processing %s: %s", champion_link, error)
-    finally:
-        driver.quit()
 
 
 def worker(queue: Queue) -> None:
     global progress_bar
 
-    while True:
-        try:
-            champion_link = queue.get(timeout=QUEUE_TIMEOUT)
+    driver = None
+
+    try:
+        # One browser per worker, reused for many pages.
+        driver = create_driver()
+        wait = WebDriverWait(driver, WAIT_TIMEOUT)
+
+        while True:
+            try:
+                champion_link = queue.get(timeout=QUEUE_TIMEOUT)
+            except Empty:
+                break
 
             try:
-                process_champion(champion_link)
+                process_champion(champion_link, driver, wait)
             finally:
                 with progress_lock:
                     if progress_bar:
@@ -309,10 +357,12 @@ def worker(queue: Queue) -> None:
 
                 queue.task_done()
 
-        except Empty:
-            break
-        except Exception as error:
-            logger.error("Worker error: %s", error)
+    except Exception as error:
+        logger.error("Worker error: %s", error)
+
+    finally:
+        if driver is not None:
+            driver.quit()
 
 
 def main() -> None:
@@ -333,7 +383,11 @@ def main() -> None:
     for link in all_links:
         queue_obj.put(link)
 
-    progress_bar = tqdm(total=len(all_links), desc="Processing champion pages", unit="page")
+    progress_bar = tqdm(
+        total=len(all_links),
+        desc="Processing champion pages",
+        unit="page",
+    )
 
     threads = []
 
@@ -348,6 +402,9 @@ def main() -> None:
         threads.append(thread)
 
     queue_obj.join()
+
+    for thread in threads:
+        thread.join(timeout=5)
 
     if progress_bar:
         progress_bar.close()

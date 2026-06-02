@@ -4,6 +4,7 @@ import subprocess
 import time
 from pathlib import Path
 
+from numpy import random
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.chrome.options import Options
@@ -22,7 +23,8 @@ TIER_LIST_URLS = {
     "support": "https://lolalytics.com/lol/tierlist/?lane=support&patch=30",
 }
 
-MAX_SCROLLS = 50
+MAX_SCROLLS = 30
+SCROLL_DELAY_RANGE = (0.25, 0.6)
 
 
 def sanitize_name(name: str) -> str:
@@ -88,7 +90,7 @@ def scrape_priors() -> dict[str, dict[str, float]]:
 
             while scroll_attempts < MAX_SCROLLS:
                 body.send_keys("\ue00f")  # PageDown
-                time.sleep(1.0)
+                time.sleep(random.uniform(*SCROLL_DELAY_RANGE))
 
                 new_height = driver.execute_script("return document.body.scrollHeight")
                 if new_height == last_height:
