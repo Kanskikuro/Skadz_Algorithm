@@ -4,109 +4,209 @@ import numpy as np
 from core.score import calculate_overall_win_rates
 from core.role_guess import guess_enemy_roles
 
-IDX_COLS = ['champ1', 'role1', 'type', 'champ2', 'role2']
+
+IDX_COLS = ["champ1", "role1", "type", "champ2", "role2"]
+
+
+METHOD_TO_LOG_COL = {
+    "bayesian": "log_odds_bayes",
+    "bayes": "log_odds_bayes",
+    "advi": "log_odds_advi",
+    "hierarchical": "log_odds_hierarchical",
+}
+
 
 ###############################################################################
 # Synergy/counter data
 ###############################################################################
+
 class MatchupRepository:
-    def __init__(self, df: pd.DataFrame): 
-        self.df = df
+    def __init__(self, df: pd.DataFrame):
+        self._df = df.copy()
+        self._normalize_columns()
 
         self._idx_cache: pd.DataFrame | None = None
         self._idx_key: str | None = None
+
     @classmethod
-    def from_csv(cls, path: str): return cls(pd.read_csv(path))
-    def get_df(self) -> pd.DataFrame: return self.df # Temporary
+    def from_csv(cls, path: str) -> "MatchupRepository":
+        return cls(pd.read_csv(path))
 
-    ## INTERNAL
-    def _with_log_odds(self, method: str) -> pd.DataFrame:
-        df = self.df
-        method = (method or "bayesian").lower()
-        pref = f"log_odds_{method}"
+    def get_df(self) -> pd.DataFrame:
+        return self._df
 
-        if "log_odds" in df.columns:
-            return df
-
-        if pref in df.columns:
-            return df.assign(log_odds=df[pref])
-
-        for c in ("log_odds_bayes", "log_odds_advi", "log_odds_hierarchical"):
-            if c in df.columns:
-                return df.assign(log_odds=df[c])
-
-        if "win_rate" in df.columns:
-            p = df["win_rate"].clip(1e-6, 100 - 1e-6) / 100.0
-            lo = np.log(p / (1 - p))
-            return df.assign(log_odds=lo)
-
-        raise ValueError("No source for log_odds")
-
-    def _create_column(self, method: str = "Bayesian") -> None:
-        method = method.lower()
-        log_col = f'log_odds_{method}'
-        if log_col in self.df.columns:
-            self.df['log_odds'] = self.df[log_col]
-        else:
-            self.df['log_odds'] = self.df['log_odds_bayes']
-
-
-    ## PUBLIC
     def indexed(self, method: str = "Bayesian") -> pd.DataFrame:
-        key = method.lower()
+        key = self._normalize_method(method)
+
         if self._idx_cache is not None and self._idx_key == key:
             return self._idx_cache
-        df = self._with_log_odds(method)
+
+        df = self._with_log_odds(key)
         idx = df.set_index(IDX_COLS).sort_index()
-        self._idx_cache, self._idx_key = idx, key
+
+        self._idx_cache = idx
+        self._idx_key = key
+
         return idx
 
+    def update_adjustments(self, method: str = "Bayesian") -> None:
+        """
+        Public replacement for _create_column().
+        Creates/updates the active 'log_odds' column.
+        """
+        key = self._normalize_method(method)
+        log_col = METHOD_TO_LOG_COL.get(key)
+
+        if log_col and log_col in self._df.columns:
+            self._df["log_odds"] = self._df[log_col]
+        elif "win_rate" in self._df.columns:
+            p = self._df["win_rate"].clip(1e-6, 100 - 1e-6) / 100.0
+            self._df["log_odds"] = np.log(p / (1 - p))
+        else:
+            raise ValueError(
+                f"No valid log-odds source for method '{method}'. "
+                f"Expected one of: {list(METHOD_TO_LOG_COL.values())}"
+            )
+
+        self._invalidate_cache()
+
     def recalculate_matchups(self, m_value: int) -> None:
-        """Recompute shrunk win rates and log-odds in-place."""
-        df = self.df
+        """
+        Recompute shrunk win rates and Bayesian log-odds in-place.
+        """
+        df = self._df
+
+        required = ["win_rate", "sample_size"]
+        missing = [col for col in required if col not in df.columns]
+
+        if missing:
+            raise ValueError(f"Missing required matchup columns: {missing}")
+
         df["win_rate_shrunk_bayes"] = (
             (df["win_rate"] * df["sample_size"] + 50.0 * m_value)
             / (df["sample_size"] + m_value)
         )
-        df["log_odds_bayes"] = df["win_rate_shrunk_bayes"].pipe(
-            lambda s: np.log(
-                s.clip(1e-6, 100 - 1e-6).div(100.0).pipe(lambda p: p / (1 - p))
-            )
-        )
+
+        p = df["win_rate_shrunk_bayes"].clip(1e-6, 100 - 1e-6) / 100.0
+        df["log_odds_bayes"] = np.log(p / (1 - p))
+
         if "delta" in df.columns:
             df["delta_shrunk_bayes"] = (
-                (df["delta"] * df["sample_size"] + 0.0 * m_value)
+                (df["delta"] * df["sample_size"])
                 / (df["sample_size"] + m_value)
             )
-        # invalidate cache
-        self._idx_cache = None
-        self._idx_key = None
+
+        self._invalidate_cache()
 
     def save(self, path: str = "data/matchups_shrunk.csv") -> None:
         cols = [
-            "champ1","role1","type","champ2","role2",
-            "win_rate","sample_size",
-            "win_rate_shrunk_bayes","log_odds_bayes",
-            "win_rate_shrunk_advi","log_odds_advi",
-            "win_rate_shrunk_hierarchical","log_odds_hierarchical",
-            "delta","delta_shrunk_bayes","log_odds"  # ok if missing
+            "champ1", "role1", "type", "champ2", "role2",
+            "win_rate", "sample_size",
+            "win_rate_shrunk_bayes", "log_odds_bayes",
+            "win_rate_shrunk_advi", "log_odds_advi",
+            "win_rate_shrunk_hierarchical", "log_odds_hierarchical",
+            "delta", "delta_shrunk_bayes", "log_odds",
         ]
-        self.df.to_csv(path, columns=[c for c in cols if c in self.df.columns], index=False)
-    
-    def update_overall_win_rates(self, priors_repo, enemy_list, ally_team, method: str = "Bayesian" ) -> tuple[float, float]:
-        """
-        Recompute ally vs. enemy team win rates and update the label.
-        """
-        method = method.lower()
 
-        self._create_column(method)
+        existing_cols = [col for col in cols if col in self._df.columns]
+        self._df.to_csv(path, columns=existing_cols, index=False)
+
+    def update_overall_win_rates(
+        self,
+        priors_repo,
+        enemy_list: list[str],
+        ally_team: dict[str, str],
+        method: str = "Bayesian",
+    ) -> tuple[float, float]:
+        """
+        Estimate ally vs enemy win rates.
+
+        Returns decimal probabilities:
+            0.53, 0.47
+        not:
+            53.0, 47.0
+        """
+        key = self._normalize_method(method)
 
         enemy_team = guess_enemy_roles(enemy_list, priors_repo)
 
+        ally_team = {
+            str(role).lower(): champ
+            for role, champ in ally_team.items()
+            if champ
+        }
+
         ally_pct, enemy_pct = calculate_overall_win_rates(
-            self.indexed(method), ally_team, enemy_team
+            self.indexed(key),
+            ally_team,
+            enemy_team,
         )
 
         return ally_pct, enemy_pct
 
-        
+    # -------------------------------------------------------------------------
+    # Internal helpers
+    # -------------------------------------------------------------------------
+
+    def _with_log_odds(self, method: str) -> pd.DataFrame:
+        """
+        Returns a dataframe with an active 'log_odds' column for the chosen method.
+        Does not rely on a possibly stale existing 'log_odds' column.
+        """
+        key = self._normalize_method(method)
+        log_col = METHOD_TO_LOG_COL.get(key)
+
+        if log_col and log_col in self._df.columns:
+            return self._df.assign(log_odds=self._df[log_col])
+
+        if "win_rate" in self._df.columns:
+            p = self._df["win_rate"].clip(1e-6, 100 - 1e-6) / 100.0
+            return self._df.assign(log_odds=np.log(p / (1 - p)))
+
+        raise ValueError(
+            f"No source for log_odds using method '{method}'. "
+            f"Available columns: {list(self._df.columns)}"
+        )
+
+    def _normalize_method(self, method: str) -> str:
+        method = str(method or "Bayesian").strip().lower()
+
+        aliases = {
+            "bayesian": "bayesian",
+            "bayes": "bayesian",
+            "advi": "advi",
+            "hierarchical": "hierarchical",
+        }
+
+        if method not in aliases:
+            raise ValueError(
+                f"Invalid method '{method}'. "
+                f"Expected one of: {list(aliases.keys())}"
+            )
+
+        return aliases[method]
+
+    def _normalize_columns(self) -> None:
+        """
+        Normalizes role/type/champion string columns.
+        Does not lowercase champion names, because display names should be preserved.
+        """
+        missing = [col for col in IDX_COLS if col not in self._df.columns]
+
+        if missing:
+            raise ValueError(f"Missing required matchup index columns: {missing}")
+
+        for col in ["role1", "role2", "type"]:
+            self._df[col] = self._df[col].astype(str).str.strip().str.lower()
+
+        self._df["type"] = self._df["type"].replace({
+            "synergy": "Synergy",
+            "counter": "Counter",
+        })
+
+        for col in ["champ1", "champ2"]:
+            self._df[col] = self._df[col].astype(str).str.strip()
+
+    def _invalidate_cache(self) -> None:
+        self._idx_cache = None
+        self._idx_key = None

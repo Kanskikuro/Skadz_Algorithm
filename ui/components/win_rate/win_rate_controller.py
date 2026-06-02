@@ -3,7 +3,12 @@ from core.services import WinRateService, WinRatePresenter
 
 
 class WinRateController:
-    def __init__(self, view: TkWinRateViewAdapter, service: WinRateService, presenter: WinRatePresenter):
+    def __init__(
+        self,
+        view: TkWinRateViewAdapter,
+        service: WinRateService,
+        presenter: WinRatePresenter,
+    ):
         self.view = view
         self.service = service
         self.presenter = presenter
