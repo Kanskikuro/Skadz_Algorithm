@@ -6,12 +6,18 @@ from PIL import Image, ImageTk
 from core.enums import ROLES, Role
 from core.repo import PriorsRepository, MatchupRepository
 from core.score import log_odds_to_probability
+from core.role_guess import guess_enemy_roles
+
+from core.champion_resolver import ChampionResolver
+from core.lcu_client import LcuClient
+from core.lcu_champ_select import LcuChampSelectService
 
 from ui.autocompleteEntryPopup import AutocompleteEntryPopup
-from ui.components.win_rate import WinRateController, TkWinRateViewAdapter
+from ui.components.draft_score import DraftScoreController, view_adapter
 from ui.components.recommend import RecommendController, RecommendView
 
-from core.services import WinRateService, WinRatePresenter
+from core.services import DraftScoreService, DraftScorePresenter
+
 from core.services import RecommendService
 
 
@@ -21,6 +27,7 @@ from core.services import RecommendService
 
 class ChampionPickerGUI(tk.Tk):
     ICON_PATH_FORMAT = os.path.join("data", "champion_icons", "{}.png")
+    CHAMPIONS_CSV_PATH = os.path.join("data", "champions.csv")
     ICON_SIZE = (64, 64)
 
     def __init__(
@@ -39,8 +46,24 @@ class ChampionPickerGUI(tk.Tk):
         self.matchup_repo = matchup_repo
         self.priors_repo = priors_repo
 
-        # Champion list for autocomplete, recommendations, and icons
-        self.champion_list: list[str] = self.priors_repo.champions()
+        # LCU auto-fill state
+        self.auto_lcu_sync = tk.BooleanVar(value=True)
+        self._lcu_sync_after_id = None
+        self.current_banned_champs: list[str] = []
+
+        # Load canonical champion names from data/champions.csv.
+        # This avoids lowercase priors names like "aatrox" and uses display names like "Aatrox".
+        self.champion_resolver = ChampionResolver.from_csv(
+            ChampionPickerGUI.CHAMPIONS_CSV_PATH,
+        )
+
+        # Champion list for autocomplete, recommendations, and icons.
+        self.champion_list: list[str] = self.champion_resolver.champions()
+
+        self.lcu_service = LcuChampSelectService(
+            LcuClient(),
+            self.champion_resolver,
+        )
 
         # Pre-load champion icons
         self.champion_icons: dict[str, ImageTk.PhotoImage | None] = {}
@@ -56,17 +79,17 @@ class ChampionPickerGUI(tk.Tk):
         self._build_ui()
 
         # Controllers
-        self.win_rate_controller = WinRateController(
-            TkWinRateViewAdapter(
+        self.draft_score_controller = DraftScoreController(
+            view_adapter.TkDraftScoreViewAdapter(
                 self.ally_champs,
                 self.enemy_champ_boxes,
-                self.overall_win_rate_label,
+                self.draft_score_label,
             ),
-            WinRateService(
+            DraftScoreService(
                 self.priors_repo,
                 self.matchup_repo,
             ),
-            WinRatePresenter(),
+            DraftScorePresenter(),
         )
 
         self.recommend_controller = RecommendController(
@@ -81,8 +104,13 @@ class ChampionPickerGUI(tk.Tk):
                 self.enemy_guess_label,
                 metric_var=self.display_metric_var,
                 pick_strategy_var=self.pick_strategy_var,
+                champion_resolver=self.champion_resolver,
+                banned_champs_provider=lambda: self.current_banned_champs,
             ),
         )
+        
+        if self.auto_lcu_sync.get():
+            self.after(500, self._poll_lcu_champ_select)
 
     # -------------------------------------------------------------------------
     # Setup helpers
@@ -90,16 +118,31 @@ class ChampionPickerGUI(tk.Tk):
 
     def _load_champion_icons(self) -> None:
         for champ in self.champion_list:
-            path = ChampionPickerGUI.ICON_PATH_FORMAT.format(champ)
+            candidate_names = self.champion_resolver.icon_name_candidates(champ)
 
-            if os.path.exists(path):
-                pil_img = Image.open(path).resize(
+            candidate_paths = [
+                os.path.join("data", "champion_icons", f"{name}.png")
+                for name in candidate_names
+            ]
+
+            found_path = None
+
+            for path in candidate_paths:
+                if os.path.exists(path):
+                    found_path = path
+                    break
+
+            if found_path:
+                pil_img = Image.open(found_path).resize(
                     ChampionPickerGUI.ICON_SIZE,
                     resample=Image.LANCZOS,  # type: ignore
                 )
                 self.champion_icons[champ] = ImageTk.PhotoImage(pil_img)
             else:
-                print(f"Icon not found for '{champ}' at {path}")
+                print(
+                    f"Icon not found for '{champ}'. Tried: "
+                    + ", ".join(candidate_paths)
+                )
                 self.champion_icons[champ] = None
 
     def _build_ui(self) -> None:
@@ -110,7 +153,14 @@ class ChampionPickerGUI(tk.Tk):
         # ---------------------------------------------------------------------
 
         settings_frame = ttk.Frame(self)
-        settings_frame.grid(row=0, column=0, columnspan=2, padx=10, pady=(10, 0), sticky="ew")
+        settings_frame.grid(
+            row=0,
+            column=0,
+            columnspan=2,
+            padx=10,
+            pady=(10, 0),
+            sticky="ew",
+        )
 
         auto_hide_chk = ttk.Checkbutton(
             settings_frame,
@@ -120,7 +170,12 @@ class ChampionPickerGUI(tk.Tk):
         )
         auto_hide_chk.grid(row=0, column=0, padx=(0, 20), sticky="w")
 
-        ttk.Label(settings_frame, text="Metric:").grid(row=0, column=1, padx=(0, 5), sticky="w")
+        ttk.Label(settings_frame, text="Metric:").grid(
+            row=0,
+            column=1,
+            padx=(0, 5),
+            sticky="w",
+        )
         metric_box = ttk.Combobox(
             settings_frame,
             textvariable=self.display_metric_var,
@@ -131,7 +186,12 @@ class ChampionPickerGUI(tk.Tk):
         metric_box.grid(row=0, column=2, padx=(0, 20), sticky="w")
         metric_box.bind("<<ComboboxSelected>>", lambda _event: self.combined_callback())
 
-        ttk.Label(settings_frame, text="Strategy:").grid(row=0, column=3, padx=(0, 5), sticky="w")
+        ttk.Label(settings_frame, text="Strategy:").grid(
+            row=0,
+            column=3,
+            padx=(0, 5),
+            sticky="w",
+        )
         strategy_box = ttk.Combobox(
             settings_frame,
             textvariable=self.pick_strategy_var,
@@ -142,7 +202,12 @@ class ChampionPickerGUI(tk.Tk):
         strategy_box.grid(row=0, column=4, padx=(0, 20), sticky="w")
         strategy_box.bind("<<ComboboxSelected>>", lambda _event: self.combined_callback())
 
-        ttk.Label(settings_frame, text="Adjustment:").grid(row=0, column=5, padx=(0, 5), sticky="w")
+        ttk.Label(settings_frame, text="Adjustment:").grid(
+            row=0,
+            column=5,
+            padx=(0, 5),
+            sticky="w",
+        )
         adjustment_box = ttk.Combobox(
             settings_frame,
             textvariable=self.adjustment_method,
@@ -153,17 +218,25 @@ class ChampionPickerGUI(tk.Tk):
         adjustment_box.grid(row=0, column=6, padx=(0, 20), sticky="w")
         adjustment_box.bind("<<ComboboxSelected>>", lambda _event: self.combined_callback())
 
+        auto_lcu_chk = ttk.Checkbutton(
+            settings_frame,
+            text="Auto-fill from League client",
+            variable=self.auto_lcu_sync,
+            command=self._toggle_lcu_sync,
+        )
+        auto_lcu_chk.grid(row=0, column=7, padx=(0, 20), sticky="w")
+
         # ---------------------------------------------------------------------
         # Overall win rate label
         # ---------------------------------------------------------------------
 
-        self.overall_win_rate_label = ttk.Label(
+        self.draft_score_label = ttk.Label(
             self,
             text="",
             justify="left",
             font=bigger_font,
         )
-        self.overall_win_rate_label.grid(
+        self.draft_score_label.grid(
             row=1,
             column=1,
             padx=10,
@@ -303,26 +376,92 @@ class ChampionPickerGUI(tk.Tk):
             copy_btn.grid(row=6, column=0, columnspan=2, pady=(5, 0), sticky="ew")
 
     # -------------------------------------------------------------------------
+    # LCU auto-fill
+    # -------------------------------------------------------------------------
+
+    def _toggle_lcu_sync(self) -> None:
+        if self.auto_lcu_sync.get():
+            self._poll_lcu_champ_select()
+        else:
+            if self._lcu_sync_after_id is not None:
+                self.after_cancel(self._lcu_sync_after_id)
+                self._lcu_sync_after_id = None
+
+    def _poll_lcu_champ_select(self) -> None:
+        if not self.auto_lcu_sync.get():
+            return
+
+        try:
+            state = self.lcu_service.read_state()
+
+            if state is not None:
+                self._apply_lcu_state(
+                    ally_champs=state.ally_champs,
+                    enemy_champs=state.enemy_champs,
+                    banned_champs=state.banned_champs,
+                )
+        except Exception as exc:
+            print(f"LCU sync failed: {exc}")
+
+        self._lcu_sync_after_id = self.after(1500, self._poll_lcu_champ_select)
+
+    def _apply_lcu_state(
+        self,
+        ally_champs: list[str],
+        enemy_champs: list[str],
+        banned_champs: list[str],
+    ) -> None:
+        """
+        Auto-fill GUI entries from LCU.
+
+        Also stores detected bans so recommendations exclude banned champions.
+        """
+        ally_role_guess = guess_enemy_roles(
+            ally_champs,
+            self.priors_repo,
+        )
+
+        changed = False
+
+        old_bans = sorted(self.current_banned_champs)
+        new_bans = sorted(banned_champs)
+
+        if old_bans != new_bans:
+            self.current_banned_champs = list(banned_champs)
+            changed = True
+
+        for role, entry in self.ally_champs.items():
+            new_champ = ally_role_guess.get(role, "")
+            old_champ = entry.get_text().strip()
+
+            if old_champ != new_champ:
+                entry.set_text(new_champ, trigger_callback=False)
+                changed = True
+
+        for i, entry in enumerate(self.enemy_champ_boxes):
+            new_champ = enemy_champs[i] if i < len(enemy_champs) else ""
+            old_champ = entry.get_text().strip()
+
+            if old_champ != new_champ:
+                entry.set_text(new_champ, trigger_callback=False)
+                changed = True
+
+        if changed:
+            self.combined_callback()
+            
+    # -------------------------------------------------------------------------
     # Main callbacks
     # -------------------------------------------------------------------------
 
     def combined_callback(self) -> None:
-        """
-        Called whenever an AutocompleteEntryPopup changes.
-        Recomputes hiding logic, overall win rates, and recommendations.
-        """
         self.check_filled_roles()
-        self.update_overall_win_rates()
+        self.update_overall_draft_scores()
         self.on_recommend()
 
-    def update_overall_win_rates(self) -> None:
-        self.win_rate_controller.on_update()
+    def update_overall_draft_scores(self) -> None:
+        self.draft_score_controller.on_update()
 
     def on_recommend(self) -> None:
-        """
-        Updates recommendations and redraws the suggested-picks area.
-        """
-        # Make sure the selected adjustment method is applied.
         self.recommend_controller.service.update_adjustments(
             self.adjustment_method.get()
         )
@@ -333,7 +472,6 @@ class ChampionPickerGUI(tk.Tk):
         self.rearrange_result_icons()
 
         for role in self.roles_ally:
-            # Clear previous widgets under this role
             for widget in self.icon_frames[role]["icons"]:
                 widget.destroy()
 
@@ -353,9 +491,12 @@ class ChampionPickerGUI(tk.Tk):
         self.check_filled_roles()
 
     def reset_all(self) -> None:
-        """
-        Clear all entry fields and destroy existing icon subframes.
-        """
+        self.auto_lcu_sync.set(False)
+
+        if self._lcu_sync_after_id is not None:
+            self.after_cancel(self._lcu_sync_after_id)
+            self._lcu_sync_after_id = None
+
         for entry in self.ally_champs.values():
             entry.clear()
 
@@ -369,7 +510,7 @@ class ChampionPickerGUI(tk.Tk):
             self.icon_frames[role]["icons"].clear()
 
         self.enemy_guess_label.config(text="")
-        self.overall_win_rate_label.config(text="")
+        self.draft_score_label.config(text="")
 
         self.check_filled_roles()
 
@@ -407,21 +548,14 @@ class ChampionPickerGUI(tk.Tk):
         text_frame = ttk.Frame(subframe)
         text_frame.grid(row=0, column=1, sticky="nw")
 
-        # A candidate score is not a full team win-rate.
-        # If display metric is WinRate, convert log-odds to probability for readability.
-        if self.display_metric_var.get() == "WinRate":
-            win_rate = log_odds_to_probability(total_log_odds)
+        score_pct = log_odds_to_probability(total_log_odds)
 
-            primary_text = f"W: {win_rate:.0%}"
-        else:
-            primary_text = f"Score: {total_log_odds:.3f}"
-
-        primary_lbl = ttk.Label(
+        score_lbl = ttk.Label(
             text_frame,
-            text=primary_text,
+            text=f"Score: {score_pct:.0%}",
             font=("Helvetica", 10),
         )
-        primary_lbl.pack(anchor="w")
+        score_lbl.pack(anchor="w")
 
         delta_lbl = ttk.Label(
             text_frame,
@@ -433,9 +567,6 @@ class ChampionPickerGUI(tk.Tk):
         self.icon_frames[role]["icons"].append(subframe)
 
     def copy_role_list(self, role: str) -> None:
-        """
-        Copy the champion list for the given role to clipboard.
-        """
         names = [
             subframe.champ_name
             for subframe in self.icon_frames[role]["icons"]
@@ -453,12 +584,11 @@ class ChampionPickerGUI(tk.Tk):
     # -------------------------------------------------------------------------
 
     def check_filled_roles(self) -> None:
-        """
-        Hides suggestion columns for roles that already have valid ally picks,
-        if auto-hide is enabled.
-        """
         for role, entry_widget in self.ally_champs.items():
-            champ_name = entry_widget.get_text().strip()
+            champ_name = self.champion_resolver.resolve_name(
+                entry_widget.get_text().strip()
+            )
+
             is_valid_champion = champ_name in self.champion_list
 
             should_show = not (is_valid_champion and self.auto_hide.get())
@@ -468,9 +598,6 @@ class ChampionPickerGUI(tk.Tk):
         self.rearrange_result_icons()
 
     def rearrange_result_icons(self) -> None:
-        """
-        Re-grid visible role containers from left to right.
-        """
         for _role, info in self.icon_frames.items():
             info["container"].grid_forget()
 

@@ -111,21 +111,13 @@ class MatchupRepository:
         existing_cols = [col for col in cols if col in self._df.columns]
         self._df.to_csv(path, columns=existing_cols, index=False)
 
-    def update_overall_win_rates(
+    def update_overall_scores(
         self,
         priors_repo,
         enemy_list: list[str],
         ally_team: dict[str, str],
         method: str = "Bayesian",
     ) -> tuple[float, float]:
-        """
-        Estimate ally vs enemy win rates.
-
-        Returns decimal probabilities:
-            0.53, 0.47
-        not:
-            53.0, 47.0
-        """
         key = self._normalize_method(method)
 
         enemy_team = guess_enemy_roles(enemy_list, priors_repo)
@@ -136,13 +128,13 @@ class MatchupRepository:
             if champ
         }
 
-        ally_pct, enemy_pct = calculate_overall_win_rates(
+        ally_score, enemy_score = calculate_overall_win_rates(
             self.indexed(key),
             ally_team,
             enemy_team,
         )
 
-        return ally_pct, enemy_pct
+        return ally_score, enemy_score
 
     # -------------------------------------------------------------------------
     # Internal helpers
