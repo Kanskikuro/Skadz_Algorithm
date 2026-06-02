@@ -35,8 +35,10 @@ class RecommendService:
         self._matchup_repo = matchup_repo
         self._priors_repo = priors_repo
         self._champion_list = list(champion_list)
+        self._method = "Bayesian"
 
     def update_adjustments(self, method: str = "Bayesian") -> None:
+        self._method = method
         self._matchup_repo.update_adjustments(method)
 
     def recommend(self, state: TeamState) -> RecommendResult:
@@ -52,7 +54,7 @@ class RecommendService:
 
         ally_pick_suggestions: dict[Role, list[tuple[str, float, float]]] = {}
 
-        df_indexed = self._matchup_repo.indexed()
+        df_indexed = self._matchup_repo.indexed(self._method)
 
         for role in ROLES:
             # Skip roles already filled by ally team.

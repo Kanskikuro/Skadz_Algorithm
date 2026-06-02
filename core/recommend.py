@@ -1,5 +1,5 @@
 import pandas as pd
-from enums import ROLES
+from core.enums import ROLES
 
 ALL_ROLES = ROLES
 

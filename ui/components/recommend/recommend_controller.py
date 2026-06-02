@@ -1,5 +1,4 @@
-
-from core.services import RecommendService, TeamState
+from core.services import RecommendService
 from .recommend_view import RecommendView
 
 
@@ -9,8 +8,12 @@ class RecommendController:
         self.view = view
 
     def on_recommend(self):
-        self.service.update_adjustments()
-        recommend_result = self.service.recommend(self.view.get_team_state())
-        self.view.update_enemy_guess_label(recommend_result.enemy_team_role_guess)
+        recommend_result = self.service.recommend(
+            self.view.get_team_state()
+        )
+
+        self.view.update_enemy_guess_label(
+            recommend_result.enemy_team_role_guess
+        )
 
         return recommend_result
