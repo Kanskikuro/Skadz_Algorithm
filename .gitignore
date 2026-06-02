@@ -1,6 +1,5 @@
 *.csv
 *.png
-!champion_priors.csv
 *.db
 .vscode/
 
