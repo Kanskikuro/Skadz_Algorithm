@@ -15,6 +15,7 @@ PickStrategy = Literal["Maximize", "MinimaxAllRoles"]
 class TeamState:
     ally_team: Mapping[Role | str, str]
     enemy_champs: Sequence[str]
+    banned_champs: Sequence[str]
     metric: Metric
     pick_strategy: PickStrategy
 
@@ -44,23 +45,20 @@ class RecommendService:
     def recommend(self, state: TeamState) -> RecommendResult:
         ally_team = self._normalize_ally_team(state.ally_team)
         enemy_champs = self._clean_champion_list(state.enemy_champs)
+        banned_champs = self._clean_champion_list(state.banned_champs)
 
         enemy_team_role_guess: dict[str, str] = guess_enemy_roles(
             enemy_champs,
             self._priors_repo,
         )
 
-        excluded_champions = set(ally_team.values()) | set(enemy_champs)
+        excluded_champions = set(ally_team.values()) | set(enemy_champs) | set(banned_champs)
 
         ally_pick_suggestions: dict[Role, list[tuple[str, float, float]]] = {}
 
         df_indexed = self._matchup_repo.indexed(self._method)
 
         for role in ROLES:
-            # Skip roles already filled by ally team.
-            if role in ally_team:
-                continue
-
             scores = get_champion_scores_for_role(
                 df_indexed=df_indexed,
                 role_to_fill=role,

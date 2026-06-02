@@ -1,140 +1,196 @@
-import csv
-import re
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
-from urllib.parse import urljoin
 
+import pandas as pd
 import requests
 
-from scripts.config import (
-    CHAMPIONS_FILE,
-    CHAMP_SUMMARY_URL,
-    DEST_FOLDER,
-    ICONS_URL,
-)
+
+CHAMPIONS_CSV = Path("data/champions.csv")
+ICON_DIR = Path("data/champion_icons")
 
 
-@dataclass(frozen=True)
-class Champion:
-    id: int
-    name: str
-    sanitized_name: str
-    alias: str
-
-
-def sanitize_champion_name(name: str) -> str:
-    """
-    File/data-safe champion name.
-
-    Examples:
-    "Aurelion Sol" -> "aurelion_sol"
-    "Kai'Sa" -> "kaisa"
-    "Dr. Mundo" -> "dr_mundo"
-    """
-    name = name.strip().lower().replace(" ", "_")
-    return re.sub(r"[^a-z0-9_]", "", name)
-
-
-def get_champions() -> list[Champion]:
-    response = requests.get(CHAMP_SUMMARY_URL, timeout=15)
+def latest_ddragon_version() -> str:
+    url = "https://ddragon.leagueoflegends.com/api/versions.json"
+    response = requests.get(url, timeout=10)
     response.raise_for_status()
 
-    data = response.json()
-    champions: list[Champion] = []
+    versions = response.json()
 
-    for champ in data:
-        name = str(champ.get("name", "")).strip()
+    if not versions:
+        raise RuntimeError("Could not fetch Data Dragon versions.")
 
-        if not name:
-            continue
+    return versions[0]
 
-        if "Doom Bot" in name:
-            continue
 
-        champ_id = champ.get("id")
-        if champ_id is None:
-            continue
+def filename_sanitize(display_name: str) -> str:
+    """
+    Sanitizes champion names for local icon filenames.
 
-        champions.append(
-            Champion(
-                id=int(champ_id),
-                name=name,
-                sanitized_name=sanitize_champion_name(name),
-                alias=str(champ.get("alias", "")).strip(),
-            )
+    Examples:
+        "Lee Sin" -> "lee_sin"
+        "Dr. Mundo" -> "dr_mundo"
+        "Nunu & Willump" -> "nunu__willump"
+        "Kai'Sa" -> "kaisa"
+    """
+    return (
+        str(display_name)
+        .lower()
+        .strip()
+        .replace("'", "")
+        .replace(".", "")
+        .replace(" ", "_")
+        .replace("&", "")
+        .replace("-", "_")
+    )
+
+
+def fetch_champions(version: str) -> pd.DataFrame:
+    url = f"https://ddragon.leagueoflegends.com/cdn/{version}/data/en_US/champion.json"
+    response = requests.get(url, timeout=10)
+    response.raise_for_status()
+
+    data = response.json()["data"]
+
+    rows = []
+
+    for riot_key, champ_data in data.items():
+        display_name = champ_data["name"]
+        champion_id = int(champ_data["key"])
+        sanitized_name = filename_sanitize(display_name)
+
+        rows.append(
+            {
+                "champion_id": champion_id,
+                "display_name": display_name,
+                "sanitized_name": sanitized_name,
+                "alias": riot_key,
+            }
         )
 
-    return sorted(champions, key=lambda c: c.sanitized_name)
+    df = pd.DataFrame(rows)
+    df = df.sort_values("display_name").reset_index(drop=True)
+
+    return df
 
 
-def save_champions_csv(champions: list[Champion], path: Path = CHAMPIONS_FILE) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    with path.open("w", encoding="utf-8", newline="") as file:
-        writer = csv.DictWriter(
-            file,
-            fieldnames=["id", "name", "sanitized_name", "alias"],
-        )
-        writer.writeheader()
-
-        for champ in champions:
-            writer.writerow(
-                {
-                    "id": champ.id,
-                    "name": champ.name,
-                    "sanitized_name": champ.sanitized_name,
-                    "alias": champ.alias,
-                }
-            )
-
-    print(f"Saved {len(champions)} champions to {path}")
+def save_champions_csv(df: pd.DataFrame) -> None:
+    CHAMPIONS_CSV.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(CHAMPIONS_CSV, index=False)
+    print(f"Saved champion metadata: {CHAMPIONS_CSV}")
 
 
-def download_icon(champ_id: int) -> Optional[bytes]:
-    url = urljoin(ICONS_URL, f"{champ_id}.png")
+def download_icon(version: str, riot_key: str, display_name: str, output_path: Path) -> bool:
+    """
+    Downloads one champion icon from Data Dragon.
 
-    try:
-        response = requests.get(url, timeout=15)
-        response.raise_for_status()
-        return response.content
-    except requests.RequestException as error:
-        print(f"[WARN] Failed to download icon for champion {champ_id}: {error}")
-        return None
+    Uses riot_key first, then fallback keys.
+    """
+    compact_display = (
+        display_name
+        .replace(" ", "")
+        .replace(".", "")
+        .replace("'", "")
+        .replace("&", "")
+        .replace("-", "")
+    )
+
+    candidate_keys = [
+        riot_key,
+        display_name,
+        compact_display,
+    ]
+
+    # Manual known exceptions, in case an older CSV has bad aliases.
+    exceptions = {
+        "FiddleSticks": "Fiddlesticks",
+    }
+
+    if riot_key in exceptions:
+        candidate_keys.insert(0, exceptions[riot_key])
+
+    seen = set()
+    unique_keys = []
+
+    for key in candidate_keys:
+        key = str(key).strip()
+
+        if not key:
+            continue
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+        unique_keys.append(key)
+
+    for key in unique_keys:
+        url = f"https://ddragon.leagueoflegends.com/cdn/{version}/img/champion/{key}.png"
+        response = requests.get(url, timeout=10)
+
+        if response.status_code == 200:
+            output_path.write_bytes(response.content)
+            print(f"Saved: {output_path} using key {key}")
+            return True
+
+    print(f"FAILED: {display_name} / {riot_key}. Tried keys: {unique_keys}")
+    return False
 
 
-def save_missing_icons(champions: list[Champion], icon_dir: Path = DEST_FOLDER) -> None:
-    icon_dir.mkdir(parents=True, exist_ok=True)
+def download_icons(version: str, df: pd.DataFrame, force: bool = False) -> None:
+    ICON_DIR.mkdir(parents=True, exist_ok=True)
 
     downloaded = 0
     skipped = 0
     failed = 0
 
-    for champ in champions:
-        icon_path = icon_dir / f"{champ.sanitized_name}.png"
+    for _, row in df.iterrows():
+        display_name = str(row["display_name"]).strip()
+        sanitized_name = str(row["sanitized_name"]).strip()
+        riot_key = str(row["alias"]).strip()
 
-        if icon_path.exists():
+        if not display_name or display_name.lower() == "nan":
             skipped += 1
             continue
 
-        icon_bytes = download_icon(champ.id)
-        if icon_bytes is None:
-            failed += 1
+        if not sanitized_name or sanitized_name.lower() == "nan":
+            skipped += 1
             continue
 
-        icon_path.write_bytes(icon_bytes)
-        downloaded += 1
-        print(f"Downloaded icon: {icon_path.name}")
+        if not riot_key or riot_key.lower() == "nan":
+            skipped += 1
+            continue
 
-    print(
-        f"Icons done. Downloaded={downloaded}, skipped_existing={skipped}, failed={failed}"
-    )
+        output_path = ICON_DIR / f"{sanitized_name}.png"
+
+        if output_path.exists() and not force:
+            skipped += 1
+            continue
+
+        ok = download_icon(
+            version=version,
+            riot_key=riot_key,
+            display_name=display_name,
+            output_path=output_path,
+        )
+
+        if ok:
+            downloaded += 1
+        else:
+            failed += 1
+
+    print()
+    print(f"Downloaded: {downloaded}")
+    print(f"Skipped existing/invalid: {skipped}")
+    print(f"Failed: {failed}")
 
 
 def main() -> None:
-    champions = get_champions()
-    save_champions_csv(champions)
-    save_missing_icons(champions)
+    version = latest_ddragon_version()
+    print(f"Using Data Dragon version: {version}")
+
+    df = fetch_champions(version)
+
+    save_champions_csv(df)
+    download_icons(version, df, force=False)
 
 
 if __name__ == "__main__":

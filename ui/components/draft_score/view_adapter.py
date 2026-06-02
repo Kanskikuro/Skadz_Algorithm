@@ -1,7 +1,7 @@
 from core.services import TeamInput
 
 
-class TkWinRateViewAdapter:
+class TkDraftScoreViewAdapter:
     def __init__(self, ally_champs: dict, enemy_widgets: list, label_widget):
         self._ally_champs = ally_champs
         self._enemy_widgets = enemy_widgets
@@ -30,5 +30,5 @@ class TkWinRateViewAdapter:
             enemy_list=enemy_list,
         )
 
-    def render_win_rates(self, text: str) -> None:
+    def render_draft_scores(self, text: str) -> None:
         self._label.config(text=text)
