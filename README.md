@@ -108,5 +108,4 @@ Only the following files are required to run the application:
 ```text
 data/matchups_shrunk.csv
 data/champion_priors.csv
-data/champion_icons/
 ```
