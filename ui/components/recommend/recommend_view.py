@@ -1,6 +1,15 @@
 from core.services import TeamState, Metric, PickStrategy
 
 
+ROLE_DISPLAY_NAMES = {
+    "top": "Top",
+    "jungle": "Jgl",
+    "middle": "Mid",
+    "bottom": "Bot",
+    "support": "Sup",
+}
+
+
 class RecommendView:
     def __init__(
         self,
@@ -61,8 +70,7 @@ class RecommendView:
         enemy_role_probabilities: dict[str, list[tuple[str, float]]] | None = None,
     ) -> None:
         if isinstance(self._enemy_guess_label, dict):
-            self._update_enemy_guess_labels_by_role(
-                enemy_team_role_guess,
+            self._update_enemy_guess_labels_by_champion_row(
                 enemy_role_probabilities,
             )
             return
@@ -72,45 +80,58 @@ class RecommendView:
             enemy_role_probabilities,
         )
 
-    def _update_enemy_guess_labels_by_role(
+    def _update_enemy_guess_labels_by_champion_row(
         self,
-        enemy_team_role_guess: dict[str, str],
         enemy_role_probabilities: dict[str, list[tuple[str, float]]] | None = None,
     ) -> None:
+        """
+        Updates one blue label per enemy input row.
+
+        Example:
+            Top: [Kha'Zix]
+
+            Top 0.00%
+            Jgl 99.49%
+            Mid 0.00%
+            Bot 0.00%
+            Sup 0.00%
+        """
         for label in self._enemy_guess_label.values():
             label.config(text="")
 
         if not enemy_role_probabilities:
-            for role, champ in enemy_team_role_guess.items():
-                if role in self._enemy_guess_label:
-                    self._enemy_guess_label[role].config(text=champ)
-
             return
 
-        role_to_lines: dict[str, list[tuple[str, float]]] = {
-            role: []
-            for role in self._enemy_guess_label.keys()
+        probability_lookup = {
+            self._normalize_champ_key(champ): probabilities
+            for champ, probabilities in enemy_role_probabilities.items()
         }
 
-        for champ, probabilities in enemy_role_probabilities.items():
-            for role, probability in probabilities:
-                if role not in role_to_lines:
-                    continue
+        if isinstance(self._enemy_champ_boxes, dict):
+            enemy_items = self._enemy_champ_boxes.items()
+        else:
+            enemy_items = enumerate(self._enemy_champ_boxes)
 
-                if probability <= 0:
-                    continue
+        for row_key, entry in enemy_items:
+            champ_name = self._resolve_champ_name(entry.get_text().strip())
 
-                role_to_lines[role].append((champ, probability))
+            if not champ_name:
+                if row_key in self._enemy_guess_label:
+                    self._enemy_guess_label[row_key].config(text="")
+                continue
 
-        for role, champ_probs in role_to_lines.items():
-            champ_probs.sort(key=lambda item: item[1], reverse=True)
+            champ_key = self._normalize_champ_key(champ_name)
+            probabilities = probability_lookup.get(champ_key, [])
 
-            lines = [
-                f"{champ} {probability:.0%}"
-                for champ, probability in champ_probs[:3]
-            ]
+            if not probabilities:
+                if row_key in self._enemy_guess_label:
+                    self._enemy_guess_label[row_key].config(text="")
+                continue
 
-            self._enemy_guess_label[role].config(text="\n".join(lines))
+            probability_text = self._format_role_probabilities_column(probabilities)
+
+            if row_key in self._enemy_guess_label:
+                self._enemy_guess_label[row_key].config(text=probability_text)
 
     def _update_single_enemy_guess_label(
         self,
@@ -128,12 +149,8 @@ class RecommendView:
                 if not probabilities:
                     continue
 
-                prob_text = ", ".join(
-                    f"{role} {prob:.0%}"
-                    for role, prob in probabilities[:3]
-                )
-
-                lines.append(f"{champ}: {prob_text}")
+                prob_text = self._format_role_probabilities_column(probabilities)
+                lines.append(f"{champ}:\n{prob_text}")
 
         if not lines and enemy_team_role_guess:
             lines = [
@@ -141,7 +158,45 @@ class RecommendView:
                 for role, champ in enemy_team_role_guess.items()
             ]
 
-        self._enemy_guess_label.config(text="\n".join(lines))
+        self._enemy_guess_label.config(text="\n\n".join(lines))
+
+    @staticmethod
+    def _format_role_probabilities_column(
+        probabilities: list[tuple[str, float]],
+    ) -> str:
+        """
+        Formats role probabilities vertically and hides 0.00% values.
+
+        Example:
+            Jgl 99.49%
+
+        It will not show:
+            Top 0.00%
+            Mid 0.00%
+            Bot 0.00%
+            Sup 0.00%
+        """
+        lines = []
+
+        for role, probability in probabilities:
+            percentage = probability * 100
+
+            # Hide anything that would display as 0.00%
+            if round(percentage, 2) <= 0.0:
+                continue
+
+            role_name = ROLE_DISPLAY_NAMES.get(role, role.capitalize())
+            lines.append(f"{role_name} {percentage:.2f}%")
+
+        return "\n".join(lines)
+
+    @staticmethod
+    def _normalize_champ_key(champ: str) -> str:
+        return "".join(
+            char
+            for char in str(champ).strip().lower()
+            if char.isalnum()
+        )
 
     def clear_enemy_guess_label(self) -> None:
         if isinstance(self._enemy_guess_label, dict):

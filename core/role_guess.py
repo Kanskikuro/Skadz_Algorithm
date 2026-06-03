@@ -1,3 +1,4 @@
+import re
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
@@ -17,7 +18,36 @@ NORMALIZED_ROLES = [_role_value(role) for role in ROLES]
 
 
 def normalize_champion_name(name: str) -> str:
-    return str(name).strip().lower()
+    """
+    Normalizes champion names for lookup.
+
+    Examples:
+        "Kha'Zix" -> "khazix"
+        "Cho'Gath" -> "chogath"
+        "Dr. Mundo" -> "drmundo"
+    """
+    return re.sub(r"[^a-z0-9]", "", str(name).strip().lower())
+
+
+def _normalize_probability_value(value) -> float:
+    """
+    Converts prior values to decimal probabilities.
+
+    Supports both:
+        0.9949 -> 0.9949
+        99.49  -> 0.9949
+    """
+    try:
+        probability = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+    probability = max(probability, 0.0)
+
+    if probability > 1.0:
+        probability /= 100.0
+
+    return probability
 
 
 def build_priors_lookup(priors_df) -> dict[str, dict[str, float]]:
@@ -25,13 +55,19 @@ def build_priors_lookup(priors_df) -> dict[str, dict[str, float]]:
     Builds a fast lookup:
 
         {
-            "yasuo": {"top": 0.05, "jungle": 0.00, ...},
-            ...
+            "khazix": {
+                "top": 0.0,
+                "jungle": 0.9949,
+                "middle": 0.0,
+                "bottom": 0.0,
+                "support": 0.0,
+            }
         }
     """
     required_columns = ["champion_name", *NORMALIZED_ROLES]
 
     missing = [col for col in required_columns if col not in priors_df.columns]
+
     if missing:
         raise ValueError(f"Missing required prior columns: {missing}")
 
@@ -44,7 +80,7 @@ def build_priors_lookup(priors_df) -> dict[str, dict[str, float]]:
 
         for role in NORMALIZED_ROLES:
             try:
-                role_probs[role] = max(float(row[role]), 0.0)
+                role_probs[role] = _normalize_probability_value(row[role])
             except (TypeError, ValueError, KeyError):
                 role_probs[role] = 0.0
 
@@ -53,11 +89,11 @@ def build_priors_lookup(priors_df) -> dict[str, dict[str, float]]:
     return lookup
 
 
-def _clean_champion_list(enemy_champs: list[str]) -> list[str]:
+def _clean_champion_list(champions: list[str]) -> list[str]:
     cleaned_champs: list[str] = []
     seen: set[str] = set()
 
-    for champ in enemy_champs:
+    for champ in champions:
         champ_name = str(champ).strip()
 
         if not champ_name:
@@ -81,12 +117,15 @@ def get_role_probabilities_for_champion(
     fallback_uniform: bool = True,
 ) -> list[tuple[str, float]]:
     """
-    Returns sorted role probabilities for one champion:
+    Returns role probabilities for one champion in fixed role order.
 
+    Example:
         [
-            ("bottom", 0.82),
-            ("middle", 0.12),
-            ...
+            ("top", 0.0),
+            ("jungle", 0.9949),
+            ("middle", 0.0),
+            ("bottom", 0.0),
+            ("support", 0.0),
         ]
     """
     if roles is None:
@@ -106,24 +145,30 @@ def get_role_probabilities_for_champion(
 
     if champ_key in priors_lookup:
         role_probs = priors_lookup[champ_key]
-        probs = [max(float(role_probs.get(role, 0.0)), 0.0) for role in roles]
+        probs = [
+            max(float(role_probs.get(role, 0.0)), 0.0)
+            for role in roles
+        ]
     elif fallback_uniform:
         probs = [1.0 / len(roles)] * len(roles)
     else:
         probs = [0.0] * len(roles)
 
-    if sum(probs) <= 0:
-        probs = [1.0 / len(roles)] * len(roles)
-
     total = sum(probs)
 
-    normalized = [
-        (role, prob / total)
-        for role, prob in zip(roles, probs)
-    ]
+    if total <= 0:
+        if fallback_uniform:
+            probs = [1.0 / len(roles)] * len(roles)
+        else:
+            probs = [0.0] * len(roles)
+    elif total > 1.000001:
+        # Safety fallback for broken rows that sum above 100%.
+        probs = [p / total for p in probs]
 
-    normalized.sort(key=lambda item: item[1], reverse=True)
-    return normalized
+    return [
+        (role, probability)
+        for role, probability in zip(roles, probs)
+    ]
 
 
 def guess_enemy_role_probabilities(
@@ -134,12 +179,10 @@ def guess_enemy_role_probabilities(
     fallback_uniform: bool = True,
 ) -> dict[str, list[tuple[str, float]]]:
     """
-    Returns role probability details per champion:
+    Returns role probability details per champion.
 
-        {
-            "Smolder": [("bottom", 0.82), ("middle", 0.10), ...],
-            "Amumu": [("jungle", 0.91), ("support", 0.07), ...],
-        }
+    top_n is supported for compatibility. If top_n is None, all roles are returned.
+    If top_n=5, all standard roles are still returned.
     """
     if roles is None:
         roles = list(NORMALIZED_ROLES)
@@ -211,7 +254,10 @@ def guess_enemy_roles(
 
         if champ_key in priors_lookup:
             role_probs = priors_lookup[champ_key]
-            probs = [max(float(role_probs.get(role, 0.0)), 0.0) for role in roles]
+            probs = [
+                max(float(role_probs.get(role, 0.0)), 0.0)
+                for role in roles
+            ]
         elif fallback_uniform:
             probs = [1.0 / m] * m
         else:
