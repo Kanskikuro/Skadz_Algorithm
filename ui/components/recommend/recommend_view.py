@@ -97,9 +97,12 @@ class RecommendView:
 
     def _get_pick_strategy(self) -> PickStrategy:
         if self._pick_strategy_var is None:
-            return "Maximize"
+            return "Hybrid"
 
         value = self._pick_strategy_var.get()
+
+        if value == "Hybrid":
+            return "Hybrid"
 
         if value == "Maximize":
             return "Maximize"
@@ -107,4 +110,4 @@ class RecommendView:
         if value == "MinimaxAllRoles":
             return "MinimaxAllRoles"
 
-        return "Maximize"
+        return "Hybrid"
