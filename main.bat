@@ -1,7 +1,6 @@
 @echo off
-call "%~dp0.venv\Scripts\activate.bat"
-python "%~dp0main.py"
+cd /d "%~dp0"
+
+uv run python main.py
 
 pause
-
-

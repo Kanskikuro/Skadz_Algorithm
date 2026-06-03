@@ -72,7 +72,7 @@ class ChampionPickerGUI(tk.Tk):
         # Settings variables
         self.adjustment_method = tk.StringVar(value="Bayesian")
         self.display_metric_var = tk.StringVar(value="Delta")
-        self.pick_strategy_var = tk.StringVar(value="Maximize")
+        self.pick_strategy_var = tk.StringVar(value="Hybrid")
         self.auto_hide = tk.BooleanVar(value=True)
 
         # Build UI
@@ -195,7 +195,7 @@ class ChampionPickerGUI(tk.Tk):
         strategy_box = ttk.Combobox(
             settings_frame,
             textvariable=self.pick_strategy_var,
-            values=["Maximize", "MinimaxAllRoles"],
+            values=["Hybrid", "Maximize", "MinimaxAllRoles"],
             width=16,
             state="readonly",
         )
@@ -262,7 +262,7 @@ class ChampionPickerGUI(tk.Tk):
         # Ally picks frame
         # ---------------------------------------------------------------------
 
-        ally_frame = ttk.LabelFrame(teams_frame, text="Ally Team (roles known)")
+        ally_frame = ttk.LabelFrame(teams_frame, text="Ally Team:")
         ally_frame.grid(row=0, column=0, padx=10, sticky="nw")
 
         self.ally_champs = {}
@@ -290,7 +290,7 @@ class ChampionPickerGUI(tk.Tk):
         # Enemy picks frame
         # ---------------------------------------------------------------------
 
-        enemy_frame = ttk.LabelFrame(teams_frame, text="Enemy Team (champions only)")
+        enemy_frame = ttk.LabelFrame(teams_frame, text="Enemy Team:")
         enemy_frame.grid(row=0, column=1, padx=10, sticky="nw")
 
         self.enemy_champ_boxes = []

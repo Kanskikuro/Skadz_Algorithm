@@ -19,7 +19,6 @@ METHOD_TO_LOG_COL = {
 ###############################################################################
 # Synergy/counter data
 ###############################################################################
-
 class MatchupRepository:
     def __init__(self, df: pd.DataFrame):
         self._df = df.copy()
@@ -27,6 +26,14 @@ class MatchupRepository:
 
         self._idx_cache: pd.DataFrame | None = None
         self._idx_key: str | None = None
+
+        self._fast_lookup_cache: dict[
+            str,
+            dict[tuple[str, str, str, str, str], float],
+        ] = {}
+
+        self._champion_roles_cache: set[tuple[str, str]] | None = None
+        self._champion_to_roles_cache: dict[str, set[str]] | None = None
 
     @classmethod
     def from_csv(cls, path: str) -> "MatchupRepository":
@@ -48,6 +55,169 @@ class MatchupRepository:
         self._idx_key = key
 
         return idx
+
+    def fast_lookup(
+        self,
+        method: str = "Bayesian",
+    ) -> dict[tuple[str, str, str, str, str], float]:
+        """
+        Fast dictionary lookup for scoring.
+
+        Key:
+            (champ1, role1, type, champ2, role2)
+
+        Value:
+            log_odds for the selected adjustment method.
+        """
+        key = self._normalize_method(method)
+
+        if key in self._fast_lookup_cache:
+            return self._fast_lookup_cache[key]
+
+        df = self._with_log_odds(key)
+
+        lookup = {
+            (champ1, role1, relation_type, champ2, role2): float(log_odds)
+            for champ1, role1, relation_type, champ2, role2, log_odds
+            in df[["champ1", "role1", "type", "champ2", "role2", "log_odds"]]
+            .itertuples(index=False, name=None)
+        }
+
+        self._fast_lookup_cache[key] = lookup
+        return lookup
+
+    def fast_delta_lookup(
+        self,
+        method: str = "Bayesian",
+    ) -> dict[tuple[str, str, str, str, str], float]:
+        """
+        Fast dictionary lookup for delta values.
+
+        Key:
+            (champ1, role1, type, champ2, role2)
+
+        Value:
+            delta_shrunk_bayes if available, otherwise 0.0.
+        """
+        key = self._normalize_method(method)
+        cache_key = f"{key}:delta"
+
+        if cache_key in self._fast_lookup_cache:
+            return self._fast_lookup_cache[cache_key]
+
+        df = self._with_log_odds(key)
+
+        if "delta_shrunk_bayes" not in df.columns:
+            lookup = {
+                (champ1, role1, relation_type, champ2, role2): 0.0
+                for champ1, role1, relation_type, champ2, role2
+                in df[["champ1", "role1", "type", "champ2", "role2"]]
+                .itertuples(index=False, name=None)
+            }
+        else:
+            lookup = {
+                (champ1, role1, relation_type, champ2, role2): float(delta)
+                for champ1, role1, relation_type, champ2, role2, delta
+                in df[
+                    [
+                        "champ1",
+                        "role1",
+                        "type",
+                        "champ2",
+                        "role2",
+                        "delta_shrunk_bayes",
+                    ]
+                ].itertuples(index=False, name=None)
+            }
+
+        self._fast_lookup_cache[cache_key] = lookup
+        return lookup
+
+    def get_pair_score(
+        self,
+        champ1: str,
+        role1: str,
+        relation_type: str,
+        champ2: str,
+        role2: str,
+        method: str = "Bayesian",
+        default: float | None = 0.0,
+    ) -> float | None:
+        """
+        Fast single score lookup.
+
+        relation_type should usually be 'Synergy' or 'Counter'.
+        """
+        lookup = self.fast_lookup(method)
+
+        return lookup.get(
+            (
+                str(champ1).strip(),
+                str(role1).strip().lower(),
+                self._normalize_relation_type(relation_type),
+                str(champ2).strip(),
+                str(role2).strip().lower(),
+            ),
+            default,
+        )
+
+    def get_pair_delta(
+        self,
+        champ1: str,
+        role1: str,
+        relation_type: str,
+        champ2: str,
+        role2: str,
+        method: str = "Bayesian",
+        default: float | None = 0.0,
+    ) -> float | None:
+        """
+        Fast single delta lookup.
+        Uses delta_shrunk_bayes if available, otherwise returns default.
+        """
+        lookup = self.fast_delta_lookup(method)
+
+        return lookup.get(
+            (
+                str(champ1).strip(),
+                str(role1).strip().lower(),
+                self._normalize_relation_type(relation_type),
+                str(champ2).strip(),
+                str(role2).strip().lower(),
+            ),
+            default,
+        )
+
+    def champion_roles(self) -> set[tuple[str, str]]:
+        """
+        Returns all known valid (champion, role) pairs.
+        Useful for MinimaxAllRoles so it does not test impossible roles.
+        """
+        if self._champion_roles_cache is not None:
+            return self._champion_roles_cache
+
+        pairs = {
+            (champ, role)
+            for champ, role in self._df[["champ1", "role1"]]
+            .itertuples(index=False, name=None)
+        }
+
+        self._champion_roles_cache = pairs
+        return pairs
+
+    def roles_for_champion(self, champion: str) -> set[str]:
+        """
+        Returns valid roles for one champion.
+        """
+        if self._champion_to_roles_cache is None:
+            mapping: dict[str, set[str]] = {}
+
+            for champ, role in self.champion_roles():
+                mapping.setdefault(champ, set()).add(role)
+
+            self._champion_to_roles_cache = mapping
+
+        return self._champion_to_roles_cache.get(str(champion).strip(), set())
 
     def update_adjustments(self, method: str = "Bayesian") -> None:
         """
@@ -100,12 +270,22 @@ class MatchupRepository:
 
     def save(self, path: str = "data/matchups_shrunk.csv") -> None:
         cols = [
-            "champ1", "role1", "type", "champ2", "role2",
-            "win_rate", "sample_size",
-            "win_rate_shrunk_bayes", "log_odds_bayes",
-            "win_rate_shrunk_advi", "log_odds_advi",
-            "win_rate_shrunk_hierarchical", "log_odds_hierarchical",
-            "delta", "delta_shrunk_bayes", "log_odds",
+            "champ1",
+            "role1",
+            "type",
+            "champ2",
+            "role2",
+            "win_rate",
+            "sample_size",
+            "win_rate_shrunk_bayes",
+            "log_odds_bayes",
+            "win_rate_shrunk_advi",
+            "log_odds_advi",
+            "win_rate_shrunk_hierarchical",
+            "log_odds_hierarchical",
+            "delta",
+            "delta_shrunk_bayes",
+            "log_odds",
         ]
 
         existing_cols = [col for col in cols if col in self._df.columns]
@@ -191,14 +371,35 @@ class MatchupRepository:
         for col in ["role1", "role2", "type"]:
             self._df[col] = self._df[col].astype(str).str.strip().str.lower()
 
-        self._df["type"] = self._df["type"].replace({
-            "synergy": "Synergy",
-            "counter": "Counter",
-        })
+        self._df["type"] = self._df["type"].replace(
+            {
+                "synergy": "Synergy",
+                "counter": "Counter",
+            }
+        )
 
         for col in ["champ1", "champ2"]:
             self._df[col] = self._df[col].astype(str).str.strip()
 
+    def _normalize_relation_type(self, relation_type: str) -> str:
+        value = str(relation_type).strip().lower()
+
+        aliases = {
+            "synergy": "Synergy",
+            "counter": "Counter",
+        }
+
+        if value not in aliases:
+            raise ValueError(
+                f"Invalid relation type '{relation_type}'. "
+                f"Expected 'Synergy' or 'Counter'."
+            )
+
+        return aliases[value]
+
     def _invalidate_cache(self) -> None:
         self._idx_cache = None
         self._idx_key = None
+        self._fast_lookup_cache.clear()
+        self._champion_roles_cache = None
+        self._champion_to_roles_cache = None
