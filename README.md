@@ -1,83 +1,64 @@
 # Skadz Algorithm
 
-A League of Legends champion recommendation tool that suggests champion picks based on team synergy, enemy counters, role priors, and matchup statistics.
+Skadz Algorithm is a League of Legends champion recommendation tool. It suggests champion picks based on ally synergy, enemy counters, champion role priors, and matchup statistics.
 
 The project is named after Skadz (Olav), who initiated and laid the foundation for the application.
 
 ## Features
 
-* Recommends champions for every role.
-* Uses matchup data to evaluate champion synergies and counters.
-* Predicts enemy role assignments using champion role priors.
-* Provides a graphical user interface for selecting ally and enemy champions.
-* Displays recommendations with win-rate and delta-based scoring metrics.
-* Includes tools for updating champion data, lane links, matchup datasets, and processed recommendation data.
-
-## Project Structure
-
-```text
-champ_rec/
-  main.py
-  script.py
-  pyproject.toml
-  uv.lock
-  data/
-    champions.csv
-    champion_icons/
-    champion_links.txt
-    champion_priors.csv
-    matchups.csv
-    reduced_matchups.csv
-    matchups_shrunk.csv
-  core/
-    enums.py
-    recommend.py
-    role_guess.py
-    score.py
-    repo/
-    services/
-  ui/
-    app.py
-    autocompleteEntryPopup.py
-    components/
-  scripts/
-    __init__.py
-    config.py
-    download_champions_and_icons.py
-    download_champion_links.py
-    download_dataset.py
-    process_dataset.py
-```
+- Champion recommendations for all five roles.
+- Ally synergy and enemy counter evaluation using matchup data.
+- Enemy role prediction using champion role priors.
+- Tkinter-based graphical user interface.
+- Recommendation scoring based on matchup strength, role likelihood, and draft context.
+- Data update scripts for champions, icons, role priors, matchup data, and processed datasets.
 
 ## Requirements
 
-This project uses [`uv`](https://github.com/astral-sh/uv) for Python package management.
+- Python 3.11+
+- [`uv`](https://github.com/astral-sh/uv)
+- Google Chrome, required by some scraping scripts
 
-Install all dependencies with:
+Install dependencies:
 
 ```bash
 uv sync
 ```
 
-If any Selenium, ChromeDriver, or browser-scraping dependencies fail, ensure that Google Chrome is installed on your system.
-
 ## Running the Application
 
-From the project root directory, run:
+From the `champ_rec/` directory:
 
 ```bash
 uv run python main.py
 ```
 
+## Required Runtime Data
+
+The application needs the following files to run:
+
+```text
+data/matchups_shrunk.csv
+data/champion_priors.csv
+data/champions.csv
+data/champion_icons/
+```
+
+`matchups_shrunk.csv` contains the processed matchup data used by the recommender.
+
+`champion_priors.csv` contains the probability of each champion appearing in each role.
+
+`champions.csv` and `champion_icons/` are used by the UI.
+
 ## Updating the Dataset
 
-Run the combined script:
+To rebuild or update all data, run:
 
 ```bash
 uv run python -m scripts.script
 ```
 
-Alternatively, delete any old data, then run the data pipeline in the following order:
+The full pipeline runs these steps:
 
 ```bash
 uv run python -m scripts.download_champions_and_icons
@@ -87,25 +68,72 @@ uv run python -m scripts.download_champion_matchups
 uv run python -m scripts.process_dataset
 ```
 
+The scripts download champion metadata, role priors, matchup statistics, and then process the raw data into smaller files used by the application.
+
+## Project Structure
+
+```text
+champ_rec/
+  main.py
+  pyproject.toml
+  uv.lock
+
+  data/
+    champions.csv
+    champion_icons/
+    champion_links.txt
+    champion_priors.csv
+    matchups.csv
+    reduced_matchups.csv
+    matchups_shrunk.csv
+
+  core/
+    enums.py
+    recommend.py
+    role_guess.py
+    score.py
+    repo/
+    services/
+
+  ui/
+    app.py
+    autocompleteEntryPopup.py
+    components/
+
+  scripts/
+    __init__.py
+    config.py
+    script.py
+    download_champions_and_icons.py
+    download_champion_links.py
+    download_champion_priors.py
+    download_champion_matchups.py
+    process_dataset.py
+```
+
 ## How the Algorithm Works
 
-The recommendation engine evaluates champions using matchup and role data.
+The recommendation engine evaluates possible champion picks using matchup statistics and role probabilities.
 
-The process consists of:
+The main steps are:
 
-1. Loading champion synergy and counter statistics.
-2. Loading champion role priors that estimate the likelihood of a champion being played in Top, Jungle, Mid, Bottom, or Support.
-3. Predicting enemy role assignments using the Hungarian algorithm.
-4. Calculating team strength using log-odds derived from synergy and counter data.
-5. Generating champion recommendations while accounting for ally synergy, enemy counters, already selected champions, and excluded picks.
+1. Load champion matchup data.
+2. Load role priors for each champion.
+3. Estimate enemy role assignments using the Hungarian algorithm.
+4. Evaluate ally synergy and enemy counters.
+5. Convert matchup values into log-odds-based draft scores.
+6. Rank champions for each role while excluding already selected champions.
+
+The displayed value should be interpreted as a recommendation score, not as a guaranteed game win-rate.
+
+## Data Sources
+
+The dataset is based on matchup and role data collected from Lolalytics.
+
+The scraping scripts depend on the current Lolalytics page structure. If Lolalytics changes its layout, selectors or XPath expressions may need to be updated.
 
 ## Notes
 
-The scraping scripts depend on the current Lolalytics page structure. If Lolalytics changes its layout, selectors or XPath expressions in `download_dataset.py` may need to be updated.
-
-Only the following files are required to run the application:
-
-```text
-data/matchups_shrunk.csv
-data/champion_priors.csv
-```
+- Running the update pipeline may overwrite generated data files.
+- Scraping can take time and may fail if the website changes or rate-limits requests.
+- The recommender depends heavily on the quality and freshness of the matchup dataset.
