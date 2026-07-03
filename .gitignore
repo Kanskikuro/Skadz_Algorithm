@@ -1,6 +1,8 @@
 *.csv
 *.png
 *.db
+data/
+
 .vscode/
 
 # Byte-compiled / optimized / DLL files
