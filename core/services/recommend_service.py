@@ -1,14 +1,16 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Tuple, Mapping, Sequence
 
 from core.enums import ROLES, Role
 from core.repo import MatchupRepository, PriorsRepository
-from core.role_guess import guess_enemy_roles
+from core.role_guess import guess_enemy_roles, guess_enemy_role_probabilities
 from core.recommend import get_champion_scores_for_role
 
 
 Metric = Literal["Delta", "WinRate"]
-PickStrategy = Literal["Maximize", "MinimaxAllRoles"]
+PickStrategy = Literal["Maximize", "MinimaxAllRoles", "Hybrid"]
+
+DEFAULT_PICK_STRATEGY: PickStrategy = "Hybrid"
 
 
 @dataclass(frozen=True)
@@ -17,13 +19,17 @@ class TeamState:
     enemy_champs: Sequence[str]
     banned_champs: Sequence[str]
     metric: Metric
-    pick_strategy: PickStrategy
+    pick_strategy: PickStrategy = DEFAULT_PICK_STRATEGY
+    enemy_team: Mapping[Role | str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
 class RecommendResult:
     enemy_team_role_guess: Dict[str, str]
     ally_role_suggestions: Dict[Role, List[Tuple[str, float, float]]]
+    enemy_role_probabilities: Dict[str, List[Tuple[str, float]]] = field(
+        default_factory=dict
+    )
 
 
 class RecommendService:
@@ -43,50 +49,82 @@ class RecommendService:
         self._matchup_repo.update_adjustments(method)
 
     def recommend(self, state: TeamState) -> RecommendResult:
-        ally_team = self._normalize_ally_team(state.ally_team)
+        ally_team = self._normalize_role_team(state.ally_team)
+        enemy_team_from_slots = self._normalize_role_team(state.enemy_team)
+
         enemy_champs = self._clean_champion_list(state.enemy_champs)
         banned_champs = self._clean_champion_list(state.banned_champs)
 
-        enemy_team_role_guess: dict[str, str] = guess_enemy_roles(
+        pick_strategy = self._normalize_pick_strategy(state.pick_strategy)
+
+        if enemy_team_from_slots:
+            enemy_team_role_guess = enemy_team_from_slots
+        else:
+            enemy_team_role_guess = guess_enemy_roles(
+                enemy_champs,
+                self._priors_repo,
+            )
+
+        enemy_role_probabilities = guess_enemy_role_probabilities(
             enemy_champs,
             self._priors_repo,
+            top_n=5,
         )
 
-        excluded_champions = set(ally_team.values()) | set(enemy_champs) | set(banned_champs)
+        excluded_champions = (
+            set(ally_team.values())
+            | set(enemy_team_role_guess.values())
+            | set(enemy_champs)
+            | set(banned_champs)
+        )
 
         ally_pick_suggestions: dict[Role, list[tuple[str, float, float]]] = {}
 
-        df_indexed = self._matchup_repo.indexed(self._method)
-
         for role in ROLES:
+            role_value = role.value if isinstance(role, Role) else str(role).lower()
+            role_key = role if isinstance(role, Role) else Role(role_value)
+
             scores = get_champion_scores_for_role(
-                df_indexed=df_indexed,
-                role_to_fill=role,
+                matchup_repo=self._matchup_repo,
+                method=self._method,
+                role_to_fill=role_value,
                 ally_team=ally_team,
                 enemy_team=enemy_team_role_guess,
-                pick_strategy=state.pick_strategy,
+                pick_strategy=pick_strategy,
                 champion_pool=self._champion_list,
                 enemy_candidate_pool=self._champion_list,
                 excluded_champions=excluded_champions,
             )
 
-            if state.metric == "Delta":
-                scores.sort(key=lambda x: x[2], reverse=True)
-            else:
-                scores.sort(key=lambda x: x[1], reverse=True)
+            metric_index = 2 if state.metric == "Delta" else 1
+            scores.sort(key=lambda x: x[metric_index], reverse=True)
 
-            ally_pick_suggestions[Role(role)] = scores[:5]
+            ally_pick_suggestions[role_key] = scores[:5]
 
         return RecommendResult(
             enemy_team_role_guess=enemy_team_role_guess,
             ally_role_suggestions=ally_pick_suggestions,
+            enemy_role_probabilities=enemy_role_probabilities,
         )
 
     @staticmethod
-    def _normalize_ally_team(ally_team: Mapping[Role | str, str]) -> dict[str, str]:
+    def _normalize_pick_strategy(pick_strategy: str | None) -> PickStrategy:
+        if pick_strategy == "Maximize":
+            return "Maximize"
+
+        if pick_strategy == "MinimaxAllRoles":
+            return "MinimaxAllRoles"
+
+        if pick_strategy == "Hybrid":
+            return "Hybrid"
+
+        return "Hybrid"
+
+    @staticmethod
+    def _normalize_role_team(team: Mapping[Role | str, str]) -> dict[str, str]:
         normalized: dict[str, str] = {}
 
-        for role, champ in ally_team.items():
+        for role, champ in team.items():
             if not champ:
                 continue
 

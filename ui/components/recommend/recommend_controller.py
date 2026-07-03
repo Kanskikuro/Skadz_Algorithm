@@ -13,7 +13,8 @@ class RecommendController:
         )
 
         self.view.update_enemy_guess_label(
-            recommend_result.enemy_team_role_guess
+            recommend_result.enemy_team_role_guess,
+            recommend_result.enemy_role_probabilities,
         )
 
         return recommend_result

@@ -1,46 +1,21 @@
-import pandas as pd
-from core.enums import ROLES
-
-ALL_ROLES = ROLES
+from core.enums import ROLES, Role
 
 
-def _as_scalar(value, column=None, aggregation="mean", default=0.0):
-    """
-    Convert pandas scalar/DataFrame/Series results into one float.
+def _role_value(role) -> str:
+    return role.value if isinstance(role, Role) else str(role).lower()
 
-    aggregation="mean" is usually safer than "sum", because duplicate rows
-    should usually not inflate the score.
-    """
-    if value is None:
-        return default
 
-    if isinstance(value, pd.DataFrame):
-        if value.empty or column not in value.columns:
-            return default
-        series = value[column]
-        return float(getattr(series, aggregation)())
-
-    if isinstance(value, pd.Series):
-        if column is not None:
-            if column not in value:
-                return default
-            return float(value[column])
-        return float(getattr(value, aggregation)())
-
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
+ALL_ROLES = [_role_value(role) for role in ROLES]
 
 
 def lookup_pair_values(
-    df_indexed,
+    matchup_repo,
+    method,
     champ_a,
     role_a,
     relation,
     champ_b,
     role_b,
-    aggregation="mean",
 ):
     """
     Looks up:
@@ -55,40 +30,62 @@ def lookup_pair_values(
         "reverse" = B -> A was found
         None = no row found
     """
-    try:
-        row = df_indexed.loc[
-            (champ_a, role_a, relation, champ_b, role_b)
-        ]
-        return (
-            _as_scalar(row, "log_odds", aggregation),
-            _as_scalar(row, "delta_shrunk_bayes", aggregation),
-            "forward",
-        )
-    except KeyError:
-        pass
+    log_odds = matchup_repo.get_pair_score(
+        champ1=champ_a,
+        role1=role_a,
+        relation_type=relation,
+        champ2=champ_b,
+        role2=role_b,
+        method=method,
+        default=None,
+    )
 
-    try:
-        row = df_indexed.loc[
-            (champ_b, role_b, relation, champ_a, role_a)
-        ]
-        return (
-            _as_scalar(row, "log_odds", aggregation),
-            _as_scalar(row, "delta_shrunk_bayes", aggregation),
-            "reverse",
+    if log_odds is not None:
+        delta = matchup_repo.get_pair_delta(
+            champ1=champ_a,
+            role1=role_a,
+            relation_type=relation,
+            champ2=champ_b,
+            role2=role_b,
+            method=method,
+            default=0.0,
         )
-    except KeyError:
-        return 0.0, 0.0, None
+        return log_odds, delta, "forward"
+
+    log_odds = matchup_repo.get_pair_score(
+        champ1=champ_b,
+        role1=role_b,
+        relation_type=relation,
+        champ2=champ_a,
+        role2=role_a,
+        method=method,
+        default=None,
+    )
+
+    if log_odds is not None:
+        delta = matchup_repo.get_pair_delta(
+            champ1=champ_b,
+            role1=role_b,
+            relation_type=relation,
+            champ2=champ_a,
+            role2=role_a,
+            method=method,
+            default=0.0,
+        )
+        return log_odds, delta, "reverse"
+
+    return 0.0, 0.0, None
 
 
 def get_candidates_for_role(
-    df_indexed,
+    matchup_repo,
     role_to_fill,
     champion_pool=None,
     excluded_champions=None,
 ):
     """
-    Finds champions that have data for the given role, plus optionally supplied
-    champion_pool champions.
+    Finds champions that have data for the given role.
+    Restricts champion_pool to champions that actually have data for this role.
     """
     if champion_pool is None:
         champion_pool = []
@@ -98,22 +95,20 @@ def get_candidates_for_role(
     else:
         excluded_champions = set(excluded_champions)
 
-    role_to_fill = role_to_fill.lower()
+    role_to_fill = str(role_to_fill).lower()
 
-    try:
-        subset = df_indexed.loc[
-            (slice(None), role_to_fill, slice(None), slice(None), slice(None)),
-            :
-        ]
-    except KeyError:
-        subset = pd.DataFrame()
-
-    candidates = set()
-
-    if not subset.empty:
-        candidates.update(subset.reset_index()["champ1"].dropna().unique().tolist())
-
-    candidates.update(champion_pool)
+    if champion_pool:
+        candidates = {
+            champ
+            for champ in champion_pool
+            if role_to_fill in matchup_repo.roles_for_champion(champ)
+        }
+    else:
+        candidates = {
+            champ
+            for champ, role in matchup_repo.champion_roles()
+            if role == role_to_fill
+        }
 
     return sorted(
         champ for champ in candidates
@@ -122,14 +117,14 @@ def get_candidates_for_role(
 
 
 def score_candidate_pick(
-    df_indexed,
+    matchup_repo,
+    method,
     candidate_champ,
     role_to_fill,
     ally_team,
     enemy_team,
     ally_synergy_weight=0.4,
     counter_weight=1.0,
-    aggregation="mean",
 ):
     """
     Scores only the candidate champion's direct contribution:
@@ -141,35 +136,33 @@ def score_candidate_pick(
     total_log_odds = 0.0
     total_delta = 0.0
 
-    # 1. Candidate synergy with allies
     for ally_role, ally_champ in ally_team.items():
         if ally_role == role_to_fill and ally_champ == candidate_champ:
             continue
 
         log_odds, delta, direction = lookup_pair_values(
-            df_indexed,
-            candidate_champ,
-            role_to_fill,
-            "Synergy",
-            ally_champ,
-            ally_role,
-            aggregation,
+            matchup_repo=matchup_repo,
+            method=method,
+            champ_a=candidate_champ,
+            role_a=role_to_fill,
+            relation="Synergy",
+            champ_b=ally_champ,
+            role_b=ally_role,
         )
 
         if direction is not None:
             total_log_odds += ally_synergy_weight * log_odds
             total_delta += ally_synergy_weight * delta
 
-    # 2. Candidate counters against enemies
     for enemy_role, enemy_champ in enemy_team.items():
         log_odds, delta, direction = lookup_pair_values(
-            df_indexed,
-            candidate_champ,
-            role_to_fill,
-            "Counter",
-            enemy_champ,
-            enemy_role,
-            aggregation,
+            matchup_repo=matchup_repo,
+            method=method,
+            champ_a=candidate_champ,
+            role_a=role_to_fill,
+            relation="Counter",
+            champ_b=enemy_champ,
+            role_b=enemy_role,
         )
 
         if direction == "forward":
@@ -183,14 +176,14 @@ def score_candidate_pick(
 
 
 def score_enemy_candidate_pick(
-    df_indexed,
+    matchup_repo,
+    method,
     enemy_candidate,
     enemy_role,
     enemy_team,
     ally_team,
     enemy_synergy_weight=0.4,
     enemy_counter_weight=1.0,
-    aggregation="mean",
 ):
     """
     Scores how threatening one possible enemy pick is:
@@ -202,35 +195,33 @@ def score_enemy_candidate_pick(
     total_log_odds = 0.0
     total_delta = 0.0
 
-    # 1. Enemy candidate synergy with existing enemy picks
     for existing_role, existing_champ in enemy_team.items():
         if existing_role == enemy_role:
             continue
 
         log_odds, delta, direction = lookup_pair_values(
-            df_indexed,
-            enemy_candidate,
-            enemy_role,
-            "Synergy",
-            existing_champ,
-            existing_role,
-            aggregation,
+            matchup_repo=matchup_repo,
+            method=method,
+            champ_a=enemy_candidate,
+            role_a=enemy_role,
+            relation="Synergy",
+            champ_b=existing_champ,
+            role_b=existing_role,
         )
 
         if direction is not None:
             total_log_odds += enemy_synergy_weight * log_odds
             total_delta += enemy_synergy_weight * delta
 
-    # 2. Enemy candidate counters against our ally team
     for ally_role, ally_champ in ally_team.items():
         log_odds, delta, direction = lookup_pair_values(
-            df_indexed,
-            enemy_candidate,
-            enemy_role,
-            "Counter",
-            ally_champ,
-            ally_role,
-            aggregation,
+            matchup_repo=matchup_repo,
+            method=method,
+            champ_a=enemy_candidate,
+            role_a=enemy_role,
+            relation="Counter",
+            champ_b=ally_champ,
+            role_b=ally_role,
         )
 
         if direction == "forward":
@@ -243,12 +234,45 @@ def score_enemy_candidate_pick(
     return total_log_odds, total_delta
 
 
+def should_use_minimax_for_role(
+    role_to_fill,
+    enemy_team,
+    pick_strategy,
+):
+    """
+    Strategy behavior:
+
+    Maximize:
+        Always use normal maximize.
+
+    MinimaxAllRoles:
+        Always use original full minimax.
+
+    Hybrid:
+        Use Maximize if the same-role enemy matchup is already known.
+        Use MinimaxAllRoles if the same-role enemy matchup is unknown.
+    """
+    role_to_fill = str(role_to_fill).lower()
+
+    if pick_strategy == "Maximize":
+        return False
+
+    if pick_strategy == "MinimaxAllRoles":
+        return True
+
+    if pick_strategy == "Hybrid":
+        return role_to_fill not in enemy_team
+
+    return False
+
+
 def get_champion_scores_for_role(
-    df_indexed,
+    matchup_repo,
+    method,
     role_to_fill,
     ally_team,
     enemy_team,
-    pick_strategy="Maximize",
+    pick_strategy="Hybrid",
     champion_pool=None,
     excluded_champions=None,
     enemy_candidate_pool=None,
@@ -257,7 +281,6 @@ def get_champion_scores_for_role(
     enemy_synergy_weight=0.4,
     enemy_counter_weight=1.0,
     minimax_weight=1.0,
-    aggregation="mean",
 ):
     """
     Returns:
@@ -271,18 +294,12 @@ def get_champion_scores_for_role(
             Scores candidate based only on ally synergy and known enemy counters.
 
         "MinimaxAllRoles":
-            Scores candidate, then subtracts the strongest possible enemy response
-            across all unfilled enemy roles.
+            Original full minimax behavior. Scores candidate, then subtracts
+            the strongest possible enemy response across all unfilled enemy roles.
 
-    champion_pool:
-        Candidate champions for our role.
-
-    enemy_candidate_pool:
-        Candidate champions the enemy may pick in minimax mode.
-        If None, champion_pool is used.
-
-    excluded_champions:
-        Champions already picked or banned.
+        "Hybrid":
+            Uses Maximize when the same-role enemy matchup is known.
+            Uses MinimaxAllRoles when the same-role enemy matchup is unknown.
     """
     if champion_pool is None:
         champion_pool = []
@@ -295,13 +312,22 @@ def get_champion_scores_for_role(
     else:
         excluded_champions = set(excluded_champions)
 
-    role_to_fill = role_to_fill.lower()
+    role_to_fill = str(role_to_fill).lower()
 
-    ally_team = dict(ally_team)
-    enemy_team = dict(enemy_team)
+    ally_team = {
+        _role_value(role): champ
+        for role, champ in dict(ally_team).items()
+        if champ
+    }
+
+    enemy_team = {
+        _role_value(role): champ
+        for role, champ in dict(enemy_team).items()
+        if champ
+    }
 
     candidates = get_candidates_for_role(
-        df_indexed=df_indexed,
+        matchup_repo=matchup_repo,
         role_to_fill=role_to_fill,
         champion_pool=champion_pool,
         excluded_champions=excluded_champions,
@@ -310,11 +336,32 @@ def get_champion_scores_for_role(
     if not candidates:
         return []
 
-    enemy_filled_roles = set(enemy_team.keys())
-    unfilled_enemy_roles = [
-        role for role in ALL_ROLES
-        if role not in enemy_filled_roles
-    ]
+    use_minimax = should_use_minimax_for_role(
+        role_to_fill=role_to_fill,
+        enemy_team=enemy_team,
+        pick_strategy=pick_strategy,
+    )
+
+    if use_minimax:
+        enemy_filled_roles = set(enemy_team.keys())
+
+        unfilled_enemy_roles = [
+            role for role in ALL_ROLES
+            if role not in enemy_filled_roles
+        ]
+
+        enemy_candidates_by_role = {
+            enemy_role: [
+                champ
+                for champ in enemy_candidate_pool
+                if champ not in excluded_champions
+                and enemy_role in matchup_repo.roles_for_champion(champ)
+            ]
+            for enemy_role in unfilled_enemy_roles
+        }
+    else:
+        unfilled_enemy_roles = []
+        enemy_candidates_by_role = {}
 
     results = []
 
@@ -323,28 +370,22 @@ def get_champion_scores_for_role(
         simulated_ally_team[role_to_fill] = candidate_champ
 
         base_log_odds, base_delta = score_candidate_pick(
-            df_indexed=df_indexed,
+            matchup_repo=matchup_repo,
+            method=method,
             candidate_champ=candidate_champ,
             role_to_fill=role_to_fill,
             ally_team=simulated_ally_team,
             enemy_team=enemy_team,
             ally_synergy_weight=ally_synergy_weight,
             counter_weight=counter_weight,
-            aggregation=aggregation,
         )
 
-        if pick_strategy == "Maximize":
-            final_log_odds = base_log_odds
-            final_delta = base_delta
-
-        elif pick_strategy == "MinimaxAllRoles":
+        if use_minimax:
             worst_enemy_log_odds = 0.0
             worst_enemy_delta = 0.0
 
             for enemy_role in unfilled_enemy_roles:
-                for enemy_candidate in enemy_candidate_pool:
-                    if enemy_candidate in excluded_champions:
-                        continue
+                for enemy_candidate in enemy_candidates_by_role[enemy_role]:
                     if enemy_candidate == candidate_champ:
                         continue
 
@@ -352,14 +393,14 @@ def get_champion_scores_for_role(
                     simulated_enemy_team[enemy_role] = enemy_candidate
 
                     enemy_log_odds, enemy_delta = score_enemy_candidate_pick(
-                        df_indexed=df_indexed,
+                        matchup_repo=matchup_repo,
+                        method=method,
                         enemy_candidate=enemy_candidate,
                         enemy_role=enemy_role,
                         enemy_team=simulated_enemy_team,
                         ally_team=simulated_ally_team,
                         enemy_synergy_weight=enemy_synergy_weight,
                         enemy_counter_weight=enemy_counter_weight,
-                        aggregation=aggregation,
                     )
 
                     worst_enemy_log_odds = max(worst_enemy_log_odds, enemy_log_odds)
@@ -367,7 +408,6 @@ def get_champion_scores_for_role(
 
             final_log_odds = base_log_odds - minimax_weight * worst_enemy_log_odds
             final_delta = base_delta - minimax_weight * worst_enemy_delta
-
         else:
             final_log_odds = base_log_odds
             final_delta = base_delta

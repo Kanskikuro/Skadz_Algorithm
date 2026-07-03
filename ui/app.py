@@ -17,7 +17,6 @@ from ui.components.draft_score import DraftScoreController, view_adapter
 from ui.components.recommend import RecommendController, RecommendView
 
 from core.services import DraftScoreService, DraftScorePresenter
-
 from core.services import RecommendService
 
 
@@ -72,7 +71,7 @@ class ChampionPickerGUI(tk.Tk):
         # Settings variables
         self.adjustment_method = tk.StringVar(value="Bayesian")
         self.display_metric_var = tk.StringVar(value="Delta")
-        self.pick_strategy_var = tk.StringVar(value="Maximize")
+        self.pick_strategy_var = tk.StringVar(value="Hybrid")
         self.auto_hide = tk.BooleanVar(value=True)
 
         # Build UI
@@ -83,7 +82,7 @@ class ChampionPickerGUI(tk.Tk):
             view_adapter.TkDraftScoreViewAdapter(
                 self.ally_champs,
                 self.enemy_champ_boxes,
-                self.draft_score_label,
+                self.draft_score_labels,
             ),
             DraftScoreService(
                 self.priors_repo,
@@ -108,13 +107,21 @@ class ChampionPickerGUI(tk.Tk):
                 banned_champs_provider=lambda: self.current_banned_champs,
             ),
         )
-        
+
+        self.after_idle(self.sync_team_frame_heights)
+
         if self.auto_lcu_sync.get():
             self.after(500, self._poll_lcu_champ_select)
 
     # -------------------------------------------------------------------------
     # Setup helpers
     # -------------------------------------------------------------------------
+
+    def _role_value(self, role) -> str:
+        return role.value if isinstance(role, Role) else str(role).lower()
+
+    def _role_key(self, role):
+        return role if isinstance(role, Role) else Role(str(role).lower())
 
     def _load_champion_icons(self) -> None:
         for champ in self.champion_list:
@@ -195,7 +202,7 @@ class ChampionPickerGUI(tk.Tk):
         strategy_box = ttk.Combobox(
             settings_frame,
             textvariable=self.pick_strategy_var,
-            values=["Maximize", "MinimaxAllRoles"],
+            values=["Hybrid", "Maximize", "MinimaxAllRoles"],
             width=16,
             state="readonly",
         )
@@ -227,30 +234,12 @@ class ChampionPickerGUI(tk.Tk):
         auto_lcu_chk.grid(row=0, column=7, padx=(0, 20), sticky="w")
 
         # ---------------------------------------------------------------------
-        # Overall win rate label
-        # ---------------------------------------------------------------------
-
-        self.draft_score_label = ttk.Label(
-            self,
-            text="",
-            justify="left",
-            font=bigger_font,
-        )
-        self.draft_score_label.grid(
-            row=1,
-            column=1,
-            padx=10,
-            pady=5,
-            sticky="nw",
-        )
-
-        # ---------------------------------------------------------------------
         # Teams frame
         # ---------------------------------------------------------------------
 
         teams_frame = ttk.Frame(self)
         teams_frame.grid(
-            row=2,
+            row=1,
             column=0,
             columnspan=2,
             sticky="nw",
@@ -259,75 +248,121 @@ class ChampionPickerGUI(tk.Tk):
         )
 
         # ---------------------------------------------------------------------
+        # Draft score labels above corresponding teams
+        # ---------------------------------------------------------------------
+
+        self.ally_draft_score_label = ttk.Label(
+            teams_frame,
+            text="",
+            justify="left",
+            font=bigger_font,
+        )
+        self.ally_draft_score_label.grid(
+            row=0,
+            column=0,
+            padx=10,
+            pady=(0, 4),
+            sticky="w",
+        )
+
+        self.enemy_draft_score_label = ttk.Label(
+            teams_frame,
+            text="",
+            justify="left",
+            font=bigger_font,
+        )
+        self.enemy_draft_score_label.grid(
+            row=0,
+            column=1,
+            padx=10,
+            pady=(0, 4),
+            sticky="w",
+        )
+
+        self.draft_score_labels = {
+            "ally": self.ally_draft_score_label,
+            "enemy": self.enemy_draft_score_label,
+        }
+
+        # ---------------------------------------------------------------------
         # Ally picks frame
         # ---------------------------------------------------------------------
 
-        ally_frame = ttk.LabelFrame(teams_frame, text="Ally Team (roles known)")
-        ally_frame.grid(row=0, column=0, padx=10, sticky="nw")
+        self.ally_frame = ttk.LabelFrame(teams_frame, text="Ally Team:")
+        self.ally_frame.grid(row=1, column=0, padx=10, sticky="nw")
 
         self.ally_champs = {}
 
         for i, role in enumerate(self.roles_ally):
+            role_value = self._role_value(role)
+
             lbl = ttk.Label(
-                ally_frame,
-                text=f"{role.capitalize()}:",
+                self.ally_frame,
+                text=f"{role_value.capitalize()}:",
                 font=bigger_font,
             )
-            lbl.grid(row=i, column=0, sticky="w")
+            lbl.grid(row=i, column=0, sticky="w", padx=(4, 4), pady=5)
 
             entry = AutocompleteEntryPopup(
-                ally_frame,
+                self.ally_frame,
                 suggestion_list=self.champion_list,
                 width=12,
                 font=bigger_font,
                 callback=self.combined_callback,
             )
-            entry.grid(row=i, column=1, padx=5, pady=5, sticky="w")
+            entry.grid(row=i, column=1, padx=(5, 6), pady=5, sticky="w")
 
-            self.ally_champs[role] = entry
-
+            self.ally_champs[role_value] = entry
         # ---------------------------------------------------------------------
         # Enemy picks frame
         # ---------------------------------------------------------------------
 
-        enemy_frame = ttk.LabelFrame(teams_frame, text="Enemy Team (champions only)")
-        enemy_frame.grid(row=0, column=1, padx=10, sticky="nw")
+        self.enemy_frame = ttk.LabelFrame(teams_frame, text="Enemy Team:")
+        self.enemy_frame.grid(row=1, column=1, padx=10, sticky="nw")
 
-        self.enemy_champ_boxes = []
+        self.enemy_champ_boxes = {}
+        self.enemy_guess_labels = {}
 
-        for i in range(5):
+        for i, role in enumerate(self.roles_ally):
+            role_value = self._role_value(role)
+
             lbl = ttk.Label(
-                enemy_frame,
-                text=f"Enemy #{i + 1}:",
+                self.enemy_frame,
+                text=f"{role_value.capitalize()}:",
                 font=bigger_font,
             )
-            lbl.grid(row=i, column=0, sticky="w")
+            lbl.grid(row=i, column=0, sticky="w", padx=(4, 4), pady=5)
 
             entry = AutocompleteEntryPopup(
-                enemy_frame,
+                self.enemy_frame,
                 suggestion_list=self.champion_list,
                 width=12,
                 font=bigger_font,
                 callback=self.combined_callback,
             )
-            entry.grid(row=i, column=1, padx=5, pady=5, sticky="w")
+            entry.grid(row=i, column=1, padx=(5, 10), pady=5, sticky="w")
 
-            self.enemy_champ_boxes.append(entry)
+            self.enemy_champ_boxes[role_value] = entry
 
-        self.enemy_guess_label = ttk.Label(
-            enemy_frame,
-            text="",
-            justify="left",
-            font=bigger_font,
-            foreground="blue",
-        )
-        self.enemy_guess_label.grid(
-            row=0,
-            column=2,
-            rowspan=len(self.enemy_champ_boxes),
-            sticky="nw",
-            padx=(10, 0),
-        )
+            guess_lbl = ttk.Label(
+                self.enemy_frame,
+                text="",
+                justify="left",
+                font=("Helvetica", 9),
+                foreground="blue",
+                anchor="w",
+            )
+            guess_lbl.grid(
+                row=i,
+                column=2,
+                padx=(8, 4),
+                pady=2,
+                sticky="nw",
+            )
+
+            self.enemy_guess_labels[role_value] = guess_lbl
+
+        self.enemy_guess_label = self.enemy_guess_labels
 
         # ---------------------------------------------------------------------
         # Suggested picks frame
@@ -356,13 +391,15 @@ class ChampionPickerGUI(tk.Tk):
         self.icon_frames = {}
 
         for i, role in enumerate(self.roles_ally):
+            role_value = self._role_value(role)
+
             container = ttk.LabelFrame(
                 self.results_frame,
-                text=role.capitalize(),
+                text=role_value.capitalize(),
             )
             container.grid(row=0, column=i, padx=10, pady=5, sticky="nw")
 
-            self.icon_frames[role] = {
+            self.icon_frames[role_value] = {
                 "container": container,
                 "icons": [],
                 "should_be_visible": True,
@@ -371,9 +408,57 @@ class ChampionPickerGUI(tk.Tk):
             copy_btn = ttk.Button(
                 container,
                 text="Copy",
-                command=lambda r=role: self.copy_role_list(r),
+                command=lambda r=role_value: self.copy_role_list(r),
             )
             copy_btn.grid(row=6, column=0, columnspan=2, pady=(5, 0), sticky="ew")
+
+    def sync_team_frame_heights(self) -> None:
+        """
+        Makes Ally Team rows match Enemy Team rows without changing width.
+
+        Enemy Team can grow dynamically because the blue guess labels may contain
+        multiple lines. Each Ally Team row is resized to match the corresponding
+        Enemy Team row height, so the ally inputs stay evenly spread.
+        """
+        if not hasattr(self, "ally_frame"):
+            return
+
+        if not hasattr(self, "enemy_frame"):
+            return
+
+        self.update_idletasks()
+
+        role_count = len(self.roles_ally)
+
+        # Reset ally row heights first so minsize does not accumulate.
+        for row_index in range(role_count):
+            self.ally_frame.grid_rowconfigure(row_index, minsize=0)
+
+        self.update_idletasks()
+
+        for row_index in range(role_count):
+            enemy_row_bbox = self.enemy_frame.grid_bbox(
+                0,
+                row_index,
+                2,
+                row_index,
+            )
+
+            if enemy_row_bbox is None:
+                continue
+
+            if len(enemy_row_bbox) < 4:
+                continue
+
+            enemy_row_height = int(enemy_row_bbox[3])
+
+            if enemy_row_height <= 0:
+                continue
+
+            self.ally_frame.grid_rowconfigure(
+                row_index,
+                minsize=enemy_row_height,
+            )
 
     # -------------------------------------------------------------------------
     # LCU auto-fill
@@ -414,10 +499,16 @@ class ChampionPickerGUI(tk.Tk):
         """
         Auto-fill GUI entries from LCU.
 
-        Also stores detected bans so recommendations exclude banned champions.
+        Ally champions and enemy champions are both assigned into role slots
+        using champion role priors.
         """
         ally_role_guess = guess_enemy_roles(
             ally_champs,
+            self.priors_repo,
+        )
+
+        enemy_role_guess = guess_enemy_roles(
+            enemy_champs,
             self.priors_repo,
         )
 
@@ -431,15 +522,17 @@ class ChampionPickerGUI(tk.Tk):
             changed = True
 
         for role, entry in self.ally_champs.items():
-            new_champ = ally_role_guess.get(role, "")
+            role_value = self._role_value(role)
+            new_champ = ally_role_guess.get(role_value, "")
             old_champ = entry.get_text().strip()
 
             if old_champ != new_champ:
                 entry.set_text(new_champ, trigger_callback=False)
                 changed = True
 
-        for i, entry in enumerate(self.enemy_champ_boxes):
-            new_champ = enemy_champs[i] if i < len(enemy_champs) else ""
+        for role, entry in self.enemy_champ_boxes.items():
+            role_value = self._role_value(role)
+            new_champ = enemy_role_guess.get(role_value, "")
             old_champ = entry.get_text().strip()
 
             if old_champ != new_champ:
@@ -448,7 +541,7 @@ class ChampionPickerGUI(tk.Tk):
 
         if changed:
             self.combined_callback()
-            
+
     # -------------------------------------------------------------------------
     # Main callbacks
     # -------------------------------------------------------------------------
@@ -468,20 +561,27 @@ class ChampionPickerGUI(tk.Tk):
 
         recommend_result = self.recommend_controller.on_recommend()
 
+        self.after_idle(self.sync_team_frame_heights)
+
         self.results_frame.grid()
         self.rearrange_result_icons()
 
         for role in self.roles_ally:
-            for widget in self.icon_frames[role]["icons"]:
+            role_value = self._role_value(role)
+
+            for widget in self.icon_frames[role_value]["icons"]:
                 widget.destroy()
 
-            self.icon_frames[role]["icons"].clear()
+            self.icon_frames[role_value]["icons"].clear()
 
-            suggestions = recommend_result.ally_role_suggestions.get(Role(role), [])
+            suggestions = recommend_result.ally_role_suggestions.get(
+                self._role_key(role_value),
+                [],
+            )
 
             for idx, (champ, total_log_odds, total_delta) in enumerate(suggestions):
                 self._add_recommendation_row(
-                    role=role,
+                    role=role_value,
                     row_index=idx,
                     champ=champ,
                     total_log_odds=total_log_odds,
@@ -500,19 +600,31 @@ class ChampionPickerGUI(tk.Tk):
         for entry in self.ally_champs.values():
             entry.clear()
 
-        for entry in self.enemy_champ_boxes:
+        for entry in self.enemy_champ_boxes.values():
             entry.clear()
 
         for role in self.roles_ally:
-            for widget in self.icon_frames[role]["icons"]:
+            role_value = self._role_value(role)
+
+            for widget in self.icon_frames[role_value]["icons"]:
                 widget.destroy()
 
-            self.icon_frames[role]["icons"].clear()
+            self.icon_frames[role_value]["icons"].clear()
 
-        self.enemy_guess_label.config(text="")
-        self.draft_score_label.config(text="")
+        if isinstance(self.enemy_guess_label, dict):
+            for label in self.enemy_guess_label.values():
+                label.config(text="")
+        else:
+            self.enemy_guess_label.config(text="")
+
+        if isinstance(self.draft_score_labels, dict):
+            for label in self.draft_score_labels.values():
+                label.config(text="")
+        else:
+            self.draft_score_labels.config(text="")
 
         self.check_filled_roles()
+        self.after_idle(self.sync_team_frame_heights)
 
     # -------------------------------------------------------------------------
     # Suggested-pick rendering
@@ -603,7 +715,7 @@ class ChampionPickerGUI(tk.Tk):
 
         visible_roles = [
             role
-            for role in self.roles_ally
+            for role in self.icon_frames.keys()
             if self.icon_frames[role].get("should_be_visible", True)
         ]
 
