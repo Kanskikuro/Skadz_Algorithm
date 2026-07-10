@@ -50,6 +50,9 @@ def _normalize_probability_value(value) -> float:
     return probability
 
 
+_PRIORS_LOOKUP_ATTR = "_role_priors_lookup_cache"
+
+
 def build_priors_lookup(priors_df) -> dict[str, dict[str, float]]:
     """
     Builds a fast lookup:
@@ -63,7 +66,17 @@ def build_priors_lookup(priors_df) -> dict[str, dict[str, float]]:
                 "support": 0.0,
             }
         }
+
+    The result is cached on priors_df.attrs, since this is rebuilt on every
+    role guess (e.g. every LCU poll tick) and the priors DataFrame doesn't
+    change during a PriorsRepository's lifetime. The cache lives and dies
+    with the DataFrame instance, so there's no separate cache to invalidate.
     """
+    cached = priors_df.attrs.get(_PRIORS_LOOKUP_ATTR)
+
+    if cached is not None:
+        return cached
+
     required_columns = ["champion_name", *NORMALIZED_ROLES]
 
     missing = [col for col in required_columns if col not in priors_df.columns]
@@ -85,6 +98,8 @@ def build_priors_lookup(priors_df) -> dict[str, dict[str, float]]:
                 role_probs[role] = 0.0
 
         lookup[champ_key] = role_probs
+
+    priors_df.attrs[_PRIORS_LOOKUP_ATTR] = lookup
 
     return lookup
 
@@ -284,3 +299,54 @@ def guess_enemy_roles(
         assigned_roles[role] = champ
 
     return assigned_roles
+
+
+def resolve_ally_role_assignments(
+    ally_champs: list[str],
+    ally_champs_by_role: dict[str, str],
+    priors_repo,
+    roles: list[str] | None = None,
+) -> dict[str, str]:
+    """
+    Merges known ally lane assignments with a role guess for the rest.
+
+    ally_champs_by_role holds champions whose lane is already known (e.g.
+    from the LCU's assignedPosition) and is used as-is. Any remaining ally
+    champions are assigned to the remaining roles via guess_enemy_roles.
+
+    Returns:
+        {
+            "top": "Aatrox",       # from ally_champs_by_role
+            "jungle": "LeeSin",    # from ally_champs_by_role
+            "middle": "Yasuo",     # guessed
+        }
+    """
+    if roles is None:
+        roles = list(NORMALIZED_ROLES)
+    else:
+        roles = [_role_value(role) for role in roles]
+
+    unassigned_champs = [
+        champ for champ in ally_champs
+        if champ not in ally_champs_by_role.values()
+    ]
+
+    unassigned_roles = [
+        role for role in roles
+        if role not in ally_champs_by_role
+    ]
+
+    guessed_roles = guess_enemy_roles(
+        unassigned_champs,
+        priors_repo,
+        roles=unassigned_roles,
+    )
+
+    assignments = {
+        role: champ
+        for role, champ in ally_champs_by_role.items()
+        if role in roles
+    }
+    assignments.update(guessed_roles)
+
+    return assignments

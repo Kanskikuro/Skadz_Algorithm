@@ -82,3 +82,12 @@ dependencies = [
     "xarray==2025.4.0",
     "xarray-einstats==0.8.0",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
