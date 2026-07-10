@@ -6,7 +6,7 @@ from PIL import Image, ImageTk
 from core.enums import ROLES, Role
 from core.repo import PriorsRepository, MatchupRepository
 from core.score import log_odds_to_probability
-from core.role_guess import guess_enemy_roles
+from core.role_guess import guess_enemy_roles, resolve_ally_role_assignments
 
 from core.champion_resolver import ChampionResolver
 from core.lcu_client import LcuClient
@@ -232,6 +232,14 @@ class ChampionPickerGUI(tk.Tk):
             command=self._toggle_lcu_sync,
         )
         auto_lcu_chk.grid(row=0, column=7, padx=(0, 20), sticky="w")
+
+        self.lcu_status_label = ttk.Label(
+            settings_frame,
+            text="",
+            foreground="red",
+            font=("Helvetica", 9),
+        )
+        self.lcu_status_label.grid(row=0, column=8, sticky="w")
 
         # ---------------------------------------------------------------------
         # Teams frame
@@ -472,6 +480,15 @@ class ChampionPickerGUI(tk.Tk):
                 self.after_cancel(self._lcu_sync_after_id)
                 self._lcu_sync_after_id = None
 
+            self._set_lcu_status("")
+
+    def _set_lcu_status(self, message: str) -> None:
+        if not hasattr(self, "lcu_status_label"):
+            return
+
+        if self.lcu_status_label.cget("text") != message:
+            self.lcu_status_label.config(text=message)
+
     def _poll_lcu_champ_select(self) -> None:
         if not self.auto_lcu_sync.get():
             return
@@ -482,28 +499,37 @@ class ChampionPickerGUI(tk.Tk):
             if state is not None:
                 self._apply_lcu_state(
                     ally_champs=state.ally_champs,
+                    ally_champs_by_role=state.ally_champs_by_role,
                     enemy_champs=state.enemy_champs,
                     banned_champs=state.banned_champs,
                 )
+
+            self._set_lcu_status("")
         except Exception as exc:
             print(f"LCU sync failed: {exc}")
+            self._set_lcu_status(f"LCU sync error: {exc}")
 
         self._lcu_sync_after_id = self.after(1500, self._poll_lcu_champ_select)
 
     def _apply_lcu_state(
         self,
         ally_champs: list[str],
+        ally_champs_by_role: dict[str, str],
         enemy_champs: list[str],
         banned_champs: list[str],
     ) -> None:
         """
         Auto-fill GUI entries from LCU.
 
-        Ally champions and enemy champions are both assigned into role slots
-        using champion role priors.
+        Ally champions are placed into the lane the player selected in champ
+        select (LCU exposes this via assignedPosition). Any ally champion
+        without a known lane, and all enemy champions (whose lanes the LCU
+        does not expose), fall back to a role guess using champion role
+        priors.
         """
-        ally_role_guess = guess_enemy_roles(
+        ally_role_assignments = resolve_ally_role_assignments(
             ally_champs,
+            ally_champs_by_role,
             self.priors_repo,
         )
 
@@ -523,7 +549,7 @@ class ChampionPickerGUI(tk.Tk):
 
         for role, entry in self.ally_champs.items():
             role_value = self._role_value(role)
-            new_champ = ally_role_guess.get(role_value, "")
+            new_champ = ally_role_assignments.get(role_value, "")
             old_champ = entry.get_text().strip()
 
             if old_champ != new_champ:
@@ -579,13 +605,14 @@ class ChampionPickerGUI(tk.Tk):
                 [],
             )
 
-            for idx, (champ, total_log_odds, total_delta) in enumerate(suggestions):
+            for idx, (champ, total_log_odds, total_delta, worst_response) in enumerate(suggestions):
                 self._add_recommendation_row(
                     role=role_value,
                     row_index=idx,
                     champ=champ,
                     total_log_odds=total_log_odds,
                     total_delta=total_delta,
+                    worst_response=worst_response,
                 )
 
         self.check_filled_roles()
@@ -637,6 +664,7 @@ class ChampionPickerGUI(tk.Tk):
         champ: str,
         total_log_odds: float,
         total_delta: float,
+        worst_response=None,
     ) -> None:
         photo = self.champion_icons.get(champ)
 
@@ -675,6 +703,21 @@ class ChampionPickerGUI(tk.Tk):
             font=("Helvetica", 10),
         )
         delta_lbl.pack(anchor="sw")
+
+        if worst_response is not None:
+            is_trap = worst_response.synergy_log_odds <= 0
+            tone = "weak fit for them" if is_trap else "strong fit for them too"
+            color = "#2e7d32" if is_trap else "#b71c1c"
+
+            watch_lbl = ttk.Label(
+                text_frame,
+                text=f"vs {worst_response.champion} ({worst_response.role.capitalize()}) — {tone}",
+                font=("Helvetica", 8),
+                foreground=color,
+                wraplength=140,
+                justify="left",
+            )
+            watch_lbl.pack(anchor="sw")
 
         self.icon_frames[role]["icons"].append(subframe)
 
