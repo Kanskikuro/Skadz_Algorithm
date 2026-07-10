@@ -319,7 +319,10 @@ def get_champion_scores_for_role(
         ]
 
     worst_response is a WorstEnemyResponse when MinimaxAllRoles/Hybrid found
-    at least one enemy candidate to evaluate, otherwise None.
+    at least one enemy candidate to evaluate, otherwise None. final_delta's
+    penalty comes from that same worst_response candidate (chosen by
+    log_odds), not independently re-maximized over delta - both numbers
+    describe one coherent enemy response, not a mix of two.
 
     pick_strategy:
         "Maximize":
@@ -438,14 +441,13 @@ def get_champion_scores_for_role(
 
                     if enemy_log_odds > worst_enemy_log_odds:
                         worst_enemy_log_odds = enemy_log_odds
+                        worst_enemy_delta = enemy_delta
                         worst_response = WorstEnemyResponse(
                             champion=enemy_candidate,
                             role=enemy_role,
                             synergy_log_odds=enemy_synergy,
                             counter_log_odds=enemy_counter,
                         )
-
-                    worst_enemy_delta = max(worst_enemy_delta, enemy_delta)
 
             final_log_odds = base_log_odds - minimax_weight * worst_enemy_log_odds
             final_delta = base_delta - minimax_weight * worst_enemy_delta

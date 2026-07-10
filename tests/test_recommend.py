@@ -13,15 +13,16 @@ class FakeMatchupRepo:
     pair, so tests only need to define the direction they care about.
     """
 
-    def __init__(self, pair_scores, roles_by_champion):
+    def __init__(self, pair_scores, roles_by_champion, pair_deltas=None):
         self._pair_scores = pair_scores
         self._roles_by_champion = roles_by_champion
+        self._pair_deltas = pair_deltas or {}
 
     def get_pair_score(self, champ1, role1, relation_type, champ2, role2, method="Bayesian", default=0.0):
         return self._pair_scores.get((champ1, role1, relation_type, champ2, role2), default)
 
     def get_pair_delta(self, champ1, role1, relation_type, champ2, role2, method="Bayesian", default=0.0):
-        return default
+        return self._pair_deltas.get((champ1, role1, relation_type, champ2, role2), default)
 
     def roles_for_champion(self, champion):
         return self._roles_by_champion.get(champion, set())
@@ -146,6 +147,36 @@ def test_minimax_reports_no_worst_response_when_no_threat_exceeds_zero():
 
     assert worst is None
     assert log_odds == pytest.approx(0.0)
+
+
+def test_minimax_delta_comes_from_the_same_candidate_as_worst_response():
+    # Malphite has the strongest combined (log_odds) threat but a tiny
+    # delta; Senna has a weaker combined threat but a huge delta. final_delta
+    # must be driven by whichever candidate actually won the worst-case
+    # search (Malphite), not independently re-maximized over delta alone
+    # (which would silently pull in Senna's unrelated delta instead).
+    repo = FakeMatchupRepo(
+        pair_scores={
+            ("Malphite", "top", "Counter", "LeeSin", "jungle"): 5.0,
+            ("Senna", "bottom", "Counter", "LeeSin", "jungle"): 2.0,
+        },
+        pair_deltas={
+            ("Malphite", "top", "Counter", "LeeSin", "jungle"): 0.1,
+            ("Senna", "bottom", "Counter", "LeeSin", "jungle"): 9.0,
+        },
+        roles_by_champion={
+            "LeeSin": {"jungle"},
+            "Nunu": {"jungle"},
+            "Malphite": {"top"},
+            "Senna": {"bottom"},
+        },
+    )
+
+    scores = _scores_by_champ(repo, "MinimaxAllRoles")
+    _log_odds, delta, worst = scores["LeeSin"]
+
+    assert worst.champion == "Malphite"
+    assert delta == pytest.approx(-0.1)
 
 
 def test_hybrid_reports_a_worst_response_only_for_unknown_roles():
