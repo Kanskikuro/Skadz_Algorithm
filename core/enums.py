@@ -10,12 +10,3 @@ class Role(str, Enum):
 
 
 ROLES = [r.value for r in Role]
-
-
-class Strategy(str, Enum):
-    MAXIMIZE = "Maximize"
-    MINIMAX = "Minimax"
-    HYBRID = "Hybrid"
-
-
-STRATEGIES = [s.value for s in Strategy]
