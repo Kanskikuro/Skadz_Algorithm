@@ -1,3 +1,5 @@
+from typing import NamedTuple
+
 from core.enums import ROLES, Role
 
 
@@ -6,6 +8,23 @@ def _role_value(role) -> str:
 
 
 ALL_ROLES = [_role_value(role) for role in ROLES]
+
+
+class WorstEnemyResponse(NamedTuple):
+    """
+    The enemy pick MinimaxAllRoles/Hybrid identified as the strongest
+    response to a suggested ally pick, in one unfilled enemy role.
+
+    synergy_log_odds is that champion's fit with the enemy's own team - if
+    it's low/negative despite being the strongest response, the enemy faces
+    a real dilemma (take the counter and weaken their comp, or protect their
+    comp and lose the matchup). If it's high, the response is a genuine
+    threat with no real downside for them.
+    """
+    champion: str
+    role: str
+    synergy_log_odds: float
+    counter_log_odds: float
 
 
 def lookup_pair_values(
@@ -191,8 +210,16 @@ def score_enemy_candidate_pick(
         + synergy with existing enemy team
         + counters against our ally team
         - penalties if our ally team counters it
+
+    Returns (total_log_odds, total_delta, synergy_log_odds, counter_log_odds).
+    The synergy/counter breakdown is exposed separately (rather than only as
+    part of the combined total) so callers can tell *why* a pick is
+    dangerous - e.g. MinimaxAllRoles' trap logic cares whether the strongest
+    counter response also has good synergy for the enemy team, not just how
+    large the combined threat number is.
     """
-    total_log_odds = 0.0
+    synergy_log_odds = 0.0
+    counter_log_odds = 0.0
     total_delta = 0.0
 
     for existing_role, existing_champ in enemy_team.items():
@@ -210,7 +237,7 @@ def score_enemy_candidate_pick(
         )
 
         if direction is not None:
-            total_log_odds += enemy_synergy_weight * log_odds
+            synergy_log_odds += enemy_synergy_weight * log_odds
             total_delta += enemy_synergy_weight * delta
 
     for ally_role, ally_champ in ally_team.items():
@@ -225,13 +252,15 @@ def score_enemy_candidate_pick(
         )
 
         if direction == "forward":
-            total_log_odds += enemy_counter_weight * log_odds
+            counter_log_odds += enemy_counter_weight * log_odds
             total_delta += enemy_counter_weight * delta
         elif direction == "reverse":
-            total_log_odds -= enemy_counter_weight * log_odds
+            counter_log_odds -= enemy_counter_weight * log_odds
             total_delta -= enemy_counter_weight * delta
 
-    return total_log_odds, total_delta
+    total_log_odds = synergy_log_odds + counter_log_odds
+
+    return total_log_odds, total_delta, synergy_log_odds, counter_log_odds
 
 
 def should_use_minimax_for_role(
@@ -285,9 +314,12 @@ def get_champion_scores_for_role(
     """
     Returns:
         [
-            (champion_name, final_log_odds, final_delta),
+            (champion_name, final_log_odds, final_delta, worst_response),
             ...
         ]
+
+    worst_response is a WorstEnemyResponse when MinimaxAllRoles/Hybrid found
+    at least one enemy candidate to evaluate, otherwise None.
 
     pick_strategy:
         "Maximize":
@@ -383,6 +415,7 @@ def get_champion_scores_for_role(
         if use_minimax:
             worst_enemy_log_odds = 0.0
             worst_enemy_delta = 0.0
+            worst_response = None
 
             for enemy_role in unfilled_enemy_roles:
                 for enemy_candidate in enemy_candidates_by_role[enemy_role]:
@@ -392,7 +425,7 @@ def get_champion_scores_for_role(
                     simulated_enemy_team = dict(enemy_team)
                     simulated_enemy_team[enemy_role] = enemy_candidate
 
-                    enemy_log_odds, enemy_delta = score_enemy_candidate_pick(
+                    enemy_log_odds, enemy_delta, enemy_synergy, enemy_counter = score_enemy_candidate_pick(
                         matchup_repo=matchup_repo,
                         method=method,
                         enemy_candidate=enemy_candidate,
@@ -403,7 +436,15 @@ def get_champion_scores_for_role(
                         enemy_counter_weight=enemy_counter_weight,
                     )
 
-                    worst_enemy_log_odds = max(worst_enemy_log_odds, enemy_log_odds)
+                    if enemy_log_odds > worst_enemy_log_odds:
+                        worst_enemy_log_odds = enemy_log_odds
+                        worst_response = WorstEnemyResponse(
+                            champion=enemy_candidate,
+                            role=enemy_role,
+                            synergy_log_odds=enemy_synergy,
+                            counter_log_odds=enemy_counter,
+                        )
+
                     worst_enemy_delta = max(worst_enemy_delta, enemy_delta)
 
             final_log_odds = base_log_odds - minimax_weight * worst_enemy_log_odds
@@ -411,7 +452,8 @@ def get_champion_scores_for_role(
         else:
             final_log_odds = base_log_odds
             final_delta = base_delta
+            worst_response = None
 
-        results.append((candidate_champ, final_log_odds, final_delta))
+        results.append((candidate_champ, final_log_odds, final_delta, worst_response))
 
     return results

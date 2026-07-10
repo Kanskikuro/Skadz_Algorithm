@@ -1,10 +1,10 @@
 from dataclasses import dataclass, field
-from typing import Dict, List, Literal, Tuple, Mapping, Sequence
+from typing import Dict, List, Literal, Optional, Tuple, Mapping, Sequence
 
 from core.enums import ROLES, Role
 from core.repo import MatchupRepository, PriorsRepository
 from core.role_guess import guess_enemy_roles, guess_enemy_role_probabilities
-from core.recommend import get_champion_scores_for_role
+from core.recommend import WorstEnemyResponse, get_champion_scores_for_role
 
 
 Metric = Literal["Delta", "WinRate"]
@@ -26,7 +26,7 @@ class TeamState:
 @dataclass(frozen=True)
 class RecommendResult:
     enemy_team_role_guess: Dict[str, str]
-    ally_role_suggestions: Dict[Role, List[Tuple[str, float, float]]]
+    ally_role_suggestions: Dict[Role, List[Tuple[str, float, float, Optional[WorstEnemyResponse]]]]
     enemy_role_probabilities: Dict[str, List[Tuple[str, float]]] = field(
         default_factory=dict
     )
@@ -78,7 +78,7 @@ class RecommendService:
             | set(banned_champs)
         )
 
-        ally_pick_suggestions: dict[Role, list[tuple[str, float, float]]] = {}
+        ally_pick_suggestions: dict[Role, list[tuple[str, float, float, Optional[WorstEnemyResponse]]]] = {}
 
         for role in ROLES:
             role_value = role.value if isinstance(role, Role) else str(role).lower()
