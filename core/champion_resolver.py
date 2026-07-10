@@ -257,10 +257,12 @@ class ChampionResolver:
             "normalized": "normalized_name",
             "normalizedname": "normalized_name",
             "normalized_name": "normalized_name",
+            "sanitized_name": "normalized_name",
 
             "key": "riot_key",
             "riotkey": "riot_key",
             "riot_key": "riot_key",
+            "alias": "riot_key",
         }
 
         self._df = self._df.rename(
