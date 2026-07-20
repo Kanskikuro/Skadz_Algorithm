@@ -617,12 +617,6 @@ class ChampionPickerGUI(tk.Tk):
         self.check_filled_roles()
 
     def reset_all(self) -> None:
-        self.auto_lcu_sync.set(False)
-
-        if self._lcu_sync_after_id is not None:
-            self.after_cancel(self._lcu_sync_after_id)
-            self._lcu_sync_after_id = None
-
         for entry in self.ally_champs.values():
             entry.clear()
 
