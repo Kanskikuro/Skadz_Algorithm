@@ -24,9 +24,6 @@ class MatchupRepository:
         self._df = df.copy()
         self._normalize_columns()
 
-        self._idx_cache: pd.DataFrame | None = None
-        self._idx_key: str | None = None
-
         self._fast_lookup_cache: dict[
             str,
             dict[tuple[str, str, str, str, str], float],
@@ -42,20 +39,6 @@ class MatchupRepository:
     def get_df(self) -> pd.DataFrame:
         return self._df
 
-    def indexed(self, method: str = "Bayesian") -> pd.DataFrame:
-        key = self._normalize_method(method)
-
-        if self._idx_cache is not None and self._idx_key == key:
-            return self._idx_cache
-
-        df = self._with_log_odds(key)
-        idx = df.set_index(IDX_COLS).sort_index()
-
-        self._idx_cache = idx
-        self._idx_key = key
-
-        return idx
-
     def fast_lookup(
         self,
         method: str = "Bayesian",
@@ -67,7 +50,9 @@ class MatchupRepository:
             (champ1, role1, type, champ2, role2)
 
         Value:
-            log_odds for the selected adjustment method.
+            log_odds for the selected adjustment method, averaged across any
+            duplicate rows for that pair (duplicates shouldn't inflate a
+            matchup's strength).
         """
         key = self._normalize_method(method)
 
@@ -76,11 +61,11 @@ class MatchupRepository:
 
         df = self._with_log_odds(key)
 
+        means = df.groupby(IDX_COLS, sort=False)["log_odds"].mean()
+
         lookup = {
-            (champ1, role1, relation_type, champ2, role2): float(log_odds)
-            for champ1, role1, relation_type, champ2, role2, log_odds
-            in df[["champ1", "role1", "type", "champ2", "role2", "log_odds"]]
-            .itertuples(index=False, name=None)
+            index: float(value)
+            for index, value in means.items()
         }
 
         self._fast_lookup_cache[key] = lookup
@@ -97,7 +82,8 @@ class MatchupRepository:
             (champ1, role1, type, champ2, role2)
 
         Value:
-            delta_shrunk_bayes if available, otherwise 0.0.
+            delta_shrunk_bayes if available, otherwise 0.0. Averaged across
+            any duplicate rows for that pair, matching fast_lookup().
         """
         key = self._normalize_method(method)
         cache_key = f"{key}:delta"
@@ -109,25 +95,15 @@ class MatchupRepository:
 
         if "delta_shrunk_bayes" not in df.columns:
             lookup = {
-                (champ1, role1, relation_type, champ2, role2): 0.0
-                for champ1, role1, relation_type, champ2, role2
-                in df[["champ1", "role1", "type", "champ2", "role2"]]
-                .itertuples(index=False, name=None)
+                index: 0.0
+                for index in df[IDX_COLS].drop_duplicates().itertuples(index=False, name=None)
             }
         else:
+            means = df.groupby(IDX_COLS, sort=False)["delta_shrunk_bayes"].mean()
+
             lookup = {
-                (champ1, role1, relation_type, champ2, role2): float(delta)
-                for champ1, role1, relation_type, champ2, role2, delta
-                in df[
-                    [
-                        "champ1",
-                        "role1",
-                        "type",
-                        "champ2",
-                        "role2",
-                        "delta_shrunk_bayes",
-                    ]
-                ].itertuples(index=False, name=None)
+                index: float(value)
+                for index, value in means.items()
             }
 
         self._fast_lookup_cache[cache_key] = lookup
@@ -309,9 +285,10 @@ class MatchupRepository:
         }
 
         ally_score, enemy_score = calculate_overall_win_rates(
-            self.indexed(key),
+            self,
             ally_team,
             enemy_team,
+            method=key,
         )
 
         return ally_score, enemy_score
@@ -398,8 +375,6 @@ class MatchupRepository:
         return aliases[value]
 
     def _invalidate_cache(self) -> None:
-        self._idx_cache = None
-        self._idx_key = None
         self._fast_lookup_cache.clear()
         self._champion_roles_cache = None
         self._champion_to_roles_cache = None

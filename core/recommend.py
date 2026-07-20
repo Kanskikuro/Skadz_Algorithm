@@ -1,6 +1,7 @@
 from typing import NamedTuple
 
 from core.enums import ROLES, Role
+from core.score import lookup_pair_values
 
 
 def _role_value(role) -> str:
@@ -25,75 +26,6 @@ class WorstEnemyResponse(NamedTuple):
     role: str
     synergy_log_odds: float
     counter_log_odds: float
-
-
-def lookup_pair_values(
-    matchup_repo,
-    method,
-    champ_a,
-    role_a,
-    relation,
-    champ_b,
-    role_b,
-):
-    """
-    Looks up:
-
-        champ_a, role_a, relation, champ_b, role_b
-
-    Returns:
-        (log_odds, delta, direction)
-
-    direction:
-        "forward" = A -> B was found
-        "reverse" = B -> A was found
-        None = no row found
-    """
-    log_odds = matchup_repo.get_pair_score(
-        champ1=champ_a,
-        role1=role_a,
-        relation_type=relation,
-        champ2=champ_b,
-        role2=role_b,
-        method=method,
-        default=None,
-    )
-
-    if log_odds is not None:
-        delta = matchup_repo.get_pair_delta(
-            champ1=champ_a,
-            role1=role_a,
-            relation_type=relation,
-            champ2=champ_b,
-            role2=role_b,
-            method=method,
-            default=0.0,
-        )
-        return log_odds, delta, "forward"
-
-    log_odds = matchup_repo.get_pair_score(
-        champ1=champ_b,
-        role1=role_b,
-        relation_type=relation,
-        champ2=champ_a,
-        role2=role_a,
-        method=method,
-        default=None,
-    )
-
-    if log_odds is not None:
-        delta = matchup_repo.get_pair_delta(
-            champ1=champ_b,
-            role1=role_b,
-            relation_type=relation,
-            champ2=champ_a,
-            role2=role_a,
-            method=method,
-            default=0.0,
-        )
-        return log_odds, delta, "reverse"
-
-    return 0.0, 0.0, None
 
 
 def get_candidates_for_role(

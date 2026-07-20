@@ -16,79 +16,93 @@ def win_rate_to_log_odds(win_rate):
     return log(p / (1 - p))
 
 
-def _as_scalar(value, aggregation="mean"):
-    """
-    Converts a pandas scalar/Series result into a float.
-
-    If duplicate rows exist in df_indexed, .loc may return a Series.
-    aggregation="mean" is usually safer than "sum", because duplicates
-    should usually not inflate the matchup strength.
-    """
-    if hasattr(value, aggregation):
-        return float(getattr(value, aggregation)())
-    return float(value)
-
-
-def lookup_pair(
-    df_indexed,
+def lookup_pair_values(
+    matchup_repo,
+    method,
     champ_a,
     role_a,
     relation,
     champ_b,
     role_b,
-    aggregation="mean",
 ):
     """
-    Looks up a pair relation from the indexed dataframe.
+    Looks up a Synergy/Counter pair via matchup_repo, trying:
 
-    Expected index format:
-        (champion_1, role_1, relation, champion_2, role_2)
+        champ_a, role_a, relation, champ_b, role_b
 
-    Expected column:
-        "log_odds"
+    first, then falling back to the reversed pair:
 
-    Returns:
-        (value, "forward") if A -> B exists
-        (value, "reverse") if B -> A exists
-        (None, None) if neither exists
+        champ_b, role_b, relation, champ_a, role_a
 
-    For Synergy:
-        forward and reverse are equivalent.
+    Returns (log_odds, delta, direction):
+        direction="forward" if champ_a -> champ_b was found
+        direction="reverse" if champ_b -> champ_a was found
+        direction=None (with 0.0, 0.0) if neither exists
 
-    For Counter:
-        forward means champ_a counters champ_b.
-        reverse means champ_b counters champ_a.
+    This is the single place both scoring paths resolve a pair through -
+    the full-team draft score below (calculate_team_log_odds) and the
+    per-candidate recommendation scoring in core.recommend. Duplicate-row
+    averaging lives once, in MatchupRepository.fast_lookup/fast_delta_lookup,
+    so neither caller needs to reimplement it.
     """
-    try:
-        value = df_indexed.loc[
-            (champ_a, role_a, relation, champ_b, role_b),
-            "log_odds",
-        ]
-        return _as_scalar(value, aggregation), "forward"
-    except KeyError:
-        pass
+    log_odds = matchup_repo.get_pair_score(
+        champ1=champ_a,
+        role1=role_a,
+        relation_type=relation,
+        champ2=champ_b,
+        role2=role_b,
+        method=method,
+        default=None,
+    )
 
-    try:
-        value = df_indexed.loc[
-            (champ_b, role_b, relation, champ_a, role_a),
-            "log_odds",
-        ]
-        return _as_scalar(value, aggregation), "reverse"
-    except KeyError:
-        return None, None
+    if log_odds is not None:
+        delta = matchup_repo.get_pair_delta(
+            champ1=champ_a,
+            role1=role_a,
+            relation_type=relation,
+            champ2=champ_b,
+            role2=role_b,
+            method=method,
+            default=0.0,
+        )
+        return log_odds, delta, "forward"
+
+    log_odds = matchup_repo.get_pair_score(
+        champ1=champ_b,
+        role1=role_b,
+        relation_type=relation,
+        champ2=champ_a,
+        role2=role_a,
+        method=method,
+        default=None,
+    )
+
+    if log_odds is not None:
+        delta = matchup_repo.get_pair_delta(
+            champ1=champ_b,
+            role1=role_b,
+            relation_type=relation,
+            champ2=champ_a,
+            role2=role_a,
+            method=method,
+            default=0.0,
+        )
+        return log_odds, delta, "reverse"
+
+    return 0.0, 0.0, None
 
 
 def calculate_overall_win_rates(
-    df_indexed,
+    matchup_repo,
     ally_team,
     enemy_team,
+    method="Bayesian",
     synergy_weight=0.4,
     counter_weight=1.0,
     enemy_synergy_weight=0.2,
     predicted_enemy_picks=None,
     use_enemy_prediction=False,
     predicted_counter_weight=0.6,
-    aggregation="mean",
     normalize=False,
 ):
     """
@@ -115,16 +129,16 @@ def calculate_overall_win_rates(
     Confidence should usually be between 0.0 and 1.0.
     """
     ally_log_odds = calculate_team_log_odds(
-        df_indexed=df_indexed,
+        matchup_repo=matchup_repo,
         team=ally_team,
         opponent_team=enemy_team,
+        method=method,
         synergy_weight=synergy_weight,
         counter_weight=counter_weight,
         enemy_synergy_weight=enemy_synergy_weight,
         predicted_enemy_picks=predicted_enemy_picks,
         use_enemy_prediction=use_enemy_prediction,
         predicted_counter_weight=predicted_counter_weight,
-        aggregation=aggregation,
         normalize=normalize,
     )
 
@@ -135,16 +149,16 @@ def calculate_overall_win_rates(
 
 
 def calculate_team_log_odds(
-    df_indexed,
+    matchup_repo,
     team,
     opponent_team,
+    method="Bayesian",
     synergy_weight=0.4,
     counter_weight=1.0,
     enemy_synergy_weight=0.2,
     predicted_enemy_picks=None,
     use_enemy_prediction=False,
     predicted_counter_weight=0.6,
-    aggregation="mean",
     normalize=False,
 ):
     """
@@ -185,17 +199,17 @@ def calculate_team_log_odds(
         for j in range(i + 1, len(ally_items)):
             role_j, champ_j = ally_items[j]
 
-            value, _ = lookup_pair(
-                df_indexed=df_indexed,
+            value, _delta, direction = lookup_pair_values(
+                matchup_repo=matchup_repo,
+                method=method,
                 champ_a=champ_i,
                 role_a=role_i,
                 relation="Synergy",
                 champ_b=champ_j,
                 role_b=role_j,
-                aggregation=aggregation,
             )
 
-            if value is not None:
+            if direction is not None:
                 total_log_odds += synergy_weight * value
                 terms += 1
 
@@ -204,17 +218,17 @@ def calculate_team_log_odds(
     # -------------------------------------------------------------------------
     for role, champ in team.items():
         for enemy_role, enemy_champ in opponent_team.items():
-            value, direction = lookup_pair(
-                df_indexed=df_indexed,
+            value, _delta, direction = lookup_pair_values(
+                matchup_repo=matchup_repo,
+                method=method,
                 champ_a=champ,
                 role_a=role,
                 relation="Counter",
                 champ_b=enemy_champ,
                 role_b=enemy_role,
-                aggregation=aggregation,
             )
 
-            if value is None:
+            if direction is None:
                 continue
 
             if direction == "forward":
@@ -232,17 +246,17 @@ def calculate_team_log_odds(
             confidence = max(0.0, min(float(confidence), 1.0))
 
             for role, champ in team.items():
-                value, direction = lookup_pair(
-                    df_indexed=df_indexed,
+                value, _delta, direction = lookup_pair_values(
+                    matchup_repo=matchup_repo,
+                    method=method,
                     champ_a=champ,
                     role_a=role,
                     relation="Counter",
                     champ_b=predicted_champ,
                     role_b=predicted_role,
-                    aggregation=aggregation,
                 )
 
-                if value is None:
+                if direction is None:
                     continue
 
                 weighted_value = predicted_counter_weight * confidence * value
@@ -265,17 +279,17 @@ def calculate_team_log_odds(
         for j in range(i + 1, len(enemy_items)):
             role_j, champ_j = enemy_items[j]
 
-            value, _ = lookup_pair(
-                df_indexed=df_indexed,
+            value, _delta, direction = lookup_pair_values(
+                matchup_repo=matchup_repo,
+                method=method,
                 champ_a=champ_i,
                 role_a=role_i,
                 relation="Synergy",
                 champ_b=champ_j,
                 role_b=role_j,
-                aggregation=aggregation,
             )
 
-            if value is not None:
+            if direction is not None:
                 total_log_odds -= enemy_synergy_weight * value
                 terms += 1
 

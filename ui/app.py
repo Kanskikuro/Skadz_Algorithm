@@ -605,14 +605,13 @@ class ChampionPickerGUI(tk.Tk):
                 [],
             )
 
-            for idx, (champ, total_log_odds, total_delta, worst_response) in enumerate(suggestions):
+            for idx, (champ, total_log_odds, total_delta, _worst_response) in enumerate(suggestions):
                 self._add_recommendation_row(
                     role=role_value,
                     row_index=idx,
                     champ=champ,
                     total_log_odds=total_log_odds,
                     total_delta=total_delta,
-                    worst_response=worst_response,
                 )
 
         self.check_filled_roles()
@@ -664,7 +663,6 @@ class ChampionPickerGUI(tk.Tk):
         champ: str,
         total_log_odds: float,
         total_delta: float,
-        worst_response=None,
     ) -> None:
         photo = self.champion_icons.get(champ)
 
@@ -703,21 +701,6 @@ class ChampionPickerGUI(tk.Tk):
             font=("Helvetica", 10),
         )
         delta_lbl.pack(anchor="sw")
-
-        if worst_response is not None:
-            is_trap = worst_response.synergy_log_odds <= 0
-            tone = "weak fit for them" if is_trap else "strong fit for them too"
-            color = "#2e7d32" if is_trap else "#b71c1c"
-
-            watch_lbl = ttk.Label(
-                text_frame,
-                text=f"vs {worst_response.champion} ({worst_response.role.capitalize()}) — {tone}",
-                font=("Helvetica", 8),
-                foreground=color,
-                wraplength=140,
-                justify="left",
-            )
-            watch_lbl.pack(anchor="sw")
 
         self.icon_frames[role]["icons"].append(subframe)
 

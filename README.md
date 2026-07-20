@@ -126,6 +126,13 @@ The main steps are:
 
 The displayed value should be interpreted as a recommendation score, not as a guaranteed game win-rate.
 
+Two consumers build on this scoring logic:
+
+- `core/score.py` scores a full team against its opponent (the "Ally/Enemy Draft Score" shown above each team).
+- `core/recommend.py` scores one candidate champion's marginal contribution to a role, for ranking suggestions (including the `MinimaxAllRoles`/`Hybrid` worst-case enemy response check).
+
+Both go through the same pair-lookup primitive (`lookup_pair_values` in `core/score.py`, backed by `MatchupRepository`'s cached dictionary lookup) so they can't independently drift on forward/reverse matchup resolution or on how duplicate data rows are averaged.
+
 ## Data Sources
 
 The dataset is based on matchup and role data collected from Lolalytics.
